@@ -1,0 +1,29 @@
+{
+    "compilerOptions": {
+        /* Core settings */
+        "target": "ES2019",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "rootDir": "src",
+        "outDir": "build",
+        "incremental": true,
+        "composite": true,
+
+        /* Interop & strictness */
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "strict": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+
+        /* Decorators support */
+        "experimentalDecorators": true,
+        "emitDecoratorMetadata": true,
+
+        /* Debugging & declarations */
+        "declaration": true,
+        "sourceMap": true
+    },
+    "include": ["src/**/*.ts", "src/*.d.ts", "index.d.ts"],
+    "exclude": ["node_modules", "build"]
+}
