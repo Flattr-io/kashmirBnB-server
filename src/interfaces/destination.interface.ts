@@ -1,34 +1,52 @@
 /**
- * Destination
+ * Destination entity
  */
 export interface IDestination {
     id: string;
     name: string;
+    slug?: string;
     description?: string;
     latitude: number;
     longitude: number;
-    created_by: string;
+    location?: {
+        type: 'Point';
+        coordinates: [number, number]; // [longitude, latitude]
+    };
+    timezone: string;
+    address?: Record<string, any>;
+    metadata?: Record<string, any>;
+    is_active: boolean;
+    created_by?: string;
     created_at: string;
     updated_at: string;
 }
 
 /**
- * Create Destination request DTO
+ * Create destination request DTO
  */
 export interface ICreateDestinationRequest {
     name: string;
+    slug?: string;
     description?: string;
     latitude: number;
     longitude: number;
-    created_by: string;
+    timezone?: string;
+    address?: Record<string, any>;
+    metadata?: Record<string, any>;
+    is_active?: boolean;
 }
 
 /**
- * Update Destination request DTO
+ * Update destination request DTO
  */
 export interface IUpdateDestinationRequest {
     name?: string;
+    slug?: string;
     description?: string;
     latitude?: number;
     longitude?: number;
+    timezone?: string;
+    address?: Record<string, any>;
+    metadata?: Record<string, any>;
+    is_active?: boolean;
 }
