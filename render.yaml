@@ -3,7 +3,7 @@ services:
       name: revam-bnb-api
       runtime: node
       plan: starter
-      buildCommand: npm ci --production=false && npm run build
+      buildCommand: npm install && npm run build
       startCommand: npm start
       healthCheckPath: /api/health
       envVars:

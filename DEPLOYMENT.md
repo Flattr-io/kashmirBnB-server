@@ -58,7 +58,7 @@ Before deployment, ensure you have the following environment variables ready:
     - **Branch**: `main` (or your default branch)
     - **Root Directory**: Leave empty (root of repository)
     - **Runtime**: `Node`
-    - **Build Command**: `npm ci --production=false && npm run build`
+    - **Build Command**: `npm install && npm run build`
     - **Start Command**: `npm start`
 
 ### Step 3: Set Environment Variables
