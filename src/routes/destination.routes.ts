@@ -58,15 +58,15 @@ router.get('/', [authMiddleware], async (req: Request, res: Response) => {
  *         description: Unauthorized
  */
 router.post('/', [authMiddleware], async (req: Request, res: Response) => {
-    const {name, slug, area, center, center_lat, center_lng, metadata} = req.body;
+    const { name, slug, area, center, center_lat, center_lng, metadata } = req.body;
     const destination = await destinationService.create({
-        name: name ,
+        name: name,
         slug: slug,
         area: area,
         center: center,
         center_lat: center_lat,
         center_lng: center_lng,
-        metadata: metadata
+        metadata: metadata,
     });
     res.send(destination);
 });
