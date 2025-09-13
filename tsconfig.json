@@ -4,7 +4,7 @@
         "target": "ES2020",
         "module": "commonjs",
         "moduleResolution": "node",
-        "rootDir": "src",
+        "rootDir": ".",
         "outDir": "build",
         "incremental": true,
         "composite": true,
@@ -27,6 +27,6 @@
         /* Ensure Node globals like process are available */
         "types": ["node"]
     },
-    "include": ["src/**/*.ts", "src/*.d.ts", "index.d.ts"],
+   "include": ["src/**/*.ts", "app.ts"],
     "exclude": ["node_modules", "build"]
 }
