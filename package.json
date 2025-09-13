@@ -6,7 +6,7 @@
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
         "dev": "nodemon app.ts",
-        "build": "tsc",
+        "build": "npx tsc",
         "start": "node build/app.js",
         "lint": "eslint . --ext .ts",
         "postbuild": "cp app.js build/ 2>/dev/null || true"
@@ -16,7 +16,7 @@
     "license": "ISC",
     "type": "commonjs",
     "engines": {
-        "node": "20.x"
+        "node": "22.x"
     },
     "dependencies": {
         "@hyperflake/http-errors": "^1.0.0",
