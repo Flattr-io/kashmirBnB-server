@@ -1,11 +1,11 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { getDB } from '../configuration/database.config';
-
 import { NotFoundError, BadRequestError } from '@hyperflake/http-errors';
 import {
     ICreateDestinationRequest,
-    IDestination,
     IUpdateDestinationRequest,
+    IDestination,
+    RowWithGeoJSON,
 } from '../interfaces/destination.interface';
 
 export class DestinationService {
@@ -16,54 +16,190 @@ export class DestinationService {
     /**
      * @desc Get all destinations
      */
-
     async getAll(): Promise<IDestination[]> {
-        const { data, error } = await this.db.from('destinations').select('*');
-        if (error) throw new Error(error.message);
-        return data as IDestination[];
+        const { data, error } = await this.db
+            .from('destinations')
+            .select(
+                `
+                id,
+                name,
+                slug,
+                metadata,
+                created_by,
+                created_at,
+                updated_at,
+                center_lat,
+                center_lng,
+                area_geojson:ST_AsGeoJSON(area),
+                center_geojson:ST_AsGeoJSON(center)
+            `
+            )
+            .returns<RowWithGeoJSON[]>();
+
+        if (error) {
+            throw new BadRequestError(error.message);
+        }
+
+        const destinations = data.map((row) => this.mapRow(row));
+        return destinations;
     }
 
     /**
      * @desc Get destination by ID
      */
-
-    async getById(destinationId: string): Promise<IDestination> {
-        const { data, error } = await this.db.from('destinations').select('*').eq('id', destinationId).maybeSingle();
-        if (error) throw new Error(error.message);
-        if (!data) throw new NotFoundError(`Destination with ID ${destinationId} not found.`);
-        return data as IDestination;
+    async getById(params: { destinationId: string }): Promise<IDestination> {
+        const { destinationId } = params;
+        const destination = await this.getByIdOrThrowError({ destinationId });
+        return destination;
     }
+
     /**
      * @desc Create a new destination
      */
     async create(params: ICreateDestinationRequest): Promise<IDestination> {
-        const { data, error } = await this.db.from('destinations').insert([params]).select().single();
-        if (error) throw new Error(error.message);
-        return data as IDestination;
+        const { data, error } = await this.db
+            .from('destinations')
+            .insert([params])
+            .select(
+                `
+                id,
+                name,
+                slug,
+                metadata,
+                created_by,
+                created_at,
+                updated_at,
+                center_lat,
+                center_lng,
+                area_geojson:ST_AsGeoJSON(area),
+                center_geojson:ST_AsGeoJSON(center)
+            `
+            )
+            .returns<RowWithGeoJSON>()
+            .single();
+
+        if (error) {
+            throw new BadRequestError(error.message);
+        }
+
+        const destination = this.mapRow(data);
+        return destination;
     }
+
     /**
-     * @desc Update a destination by ID
+     * @desc Update a destination
      */
-    async update(destinationId: string, payload: IUpdateDestinationRequest): Promise<IDestination> {
-        await this.getById(destinationId); // ensure it exists
+    async update(params: { destinationId: string; payload: IUpdateDestinationRequest }): Promise<IDestination> {
+        const { destinationId, payload } = params;
+
+        await this.getByIdOrThrowError({ destinationId });
+
         const { data, error } = await this.db
             .from('destinations')
             .update(payload)
             .eq('id', destinationId)
-            .select()
+            .select(
+                `
+                id,
+                name,
+                slug,
+                metadata,
+                created_by,
+                created_at,
+                updated_at,
+                center_lat,
+                center_lng,
+                area_geojson:ST_AsGeoJSON(area),
+                center_geojson:ST_AsGeoJSON(center)
+            `
+            )
+            .returns<RowWithGeoJSON>()
             .single();
-        if (error) throw new Error(error.message);
-        return data as IDestination;
+
+        if (error) {
+            throw new BadRequestError(error.message);
+        }
+
+        const destination = this.mapRow(data);
+        return destination;
     }
 
     /**
-     * @desc Delete a destination by ID
+     * @desc Delete a destination
      */
+    async delete(params: { destinationId: string }): Promise<{ destinationId: string }> {
+        const { destinationId } = params;
 
-    async delete(destinationId: string): Promise<{ destinationId: string }> {
-        await this.getById(destinationId); // ensure it exists
+        await this.getByIdOrThrowError({ destinationId });
+
         const { error } = await this.db.from('destinations').delete().eq('id', destinationId);
-        if (error) throw new Error(error.message);
-        return { destinationId };
+
+        if (error) {
+            throw new BadRequestError(error.message);
+        }
+
+        const deletedDestination = { destinationId };
+        return deletedDestination;
+    }
+
+    // ---------------------
+    // PRIVATE UTILITIES
+    // ---------------------
+
+    private async getByIdOrThrowError(params: { destinationId: string }): Promise<IDestination> {
+        const { destinationId } = params;
+
+        const { data, error } = await this.db
+            .from('destinations')
+            .select(
+                `
+                id,
+                name,
+                slug,
+                metadata,
+                created_by,
+                created_at,
+                updated_at,
+                center_lat,
+                center_lng,
+                area_geojson:ST_AsGeoJSON(area),
+                center_geojson:ST_AsGeoJSON(center)
+            `
+            )
+            .eq('id', destinationId)
+            .returns<RowWithGeoJSON>()
+            .maybeSingle();
+
+        if (error) {
+            throw new BadRequestError(error.message);
+        }
+
+        if (!data) {
+            throw new NotFoundError(`Destination with ID ${destinationId} not found`);
+        }
+
+        const destination = this.mapRow(data);
+        return destination;
+    }
+
+    private mapRow(row: RowWithGeoJSON): IDestination {
+        const area = row.area_geojson ? JSON.parse(row.area_geojson) : null;
+        const center = row.center_geojson ? JSON.parse(row.center_geojson) : null;
+
+        const destination: IDestination = {
+            id: row.id,
+            name: row.name,
+            slug: row.slug,
+            area,
+            center,
+            center_lat: row.center_lat,
+            center_lng: row.center_lng,
+            metadata: row.metadata ?? undefined,
+            created_by: row.created_by,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        };
+
+        return destination;
     }
 }

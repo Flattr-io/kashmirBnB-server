@@ -15,6 +15,7 @@ yarn.lock
 dist/
 build/
 out/
+tsconfig.tsbuildinfo
 
 # IDE and editor files
 .idea/

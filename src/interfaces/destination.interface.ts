@@ -1,52 +1,75 @@
 /**
- * Destination entity
+ * GeoJSON geometry types for API representation
+ */
+export interface IGeoJSONPoint {
+    type: 'Point';
+    coordinates: [number, number]; // [lng, lat]
+}
+
+export interface IGeoJSONPolygon {
+    type: 'Polygon';
+    coordinates: [number, number][][]; // array of linear rings
+}
+
+/**
+ * Destination entity (read model aligned to DB)
  */
 export interface IDestination {
     id: string;
     name: string;
-    slug?: string;
-    description?: string;
-    latitude: number;
-    longitude: number;
-    location?: {
-        type: 'Point';
-        coordinates: [number, number]; // [longitude, latitude]
-    };
-    timezone: string;
-    address?: Record<string, any>;
+    slug: string;
+
+    // Geometry fields
+    area: IGeoJSONPolygon;
+    center: IGeoJSONPoint;
+    center_lat: number;
+    center_lng: number;
+
+    // Extensibility
     metadata?: Record<string, any>;
-    is_active: boolean;
-    created_by?: string;
-    created_at: string;
-    updated_at: string;
+
+    // Auditing
+    created_by?: string | null;
+    created_at: string; // ISO timestamp
+    updated_at: string; // ISO timestamp
 }
 
-/**
- * Create destination request DTO
- */
 export interface ICreateDestinationRequest {
     name: string;
-    slug?: string;
-    description?: string;
-    latitude: number;
-    longitude: number;
-    timezone?: string;
-    address?: Record<string, any>;
+    slug: string;
+
+    center: IGeoJSONPoint;
+    center_lat: number;
+    center_lng: number;
+
+    area: IGeoJSONPolygon;
+
     metadata?: Record<string, any>;
-    is_active?: boolean;
 }
 
-/**
- * Update destination request DTO
- */
 export interface IUpdateDestinationRequest {
     name?: string;
     slug?: string;
-    description?: string;
-    latitude?: number;
-    longitude?: number;
-    timezone?: string;
-    address?: Record<string, any>;
+
+    center?: IGeoJSONPoint;
+    center_lat?: number;
+    center_lng?: number;
+
+    area?: IGeoJSONPolygon;
+
     metadata?: Record<string, any>;
-    is_active?: boolean;
 }
+
+export type RowWithGeoJSON = {
+    id: string;
+    name: string;
+    slug: string;
+    metadata: Record<string, any> | null;
+    created_by: string | null;
+    created_at: string;
+    updated_at: string;
+    center_lat: number;
+    center_lng: number;
+    area_geojson: string | null;
+    center_geojson: string | null;
+};

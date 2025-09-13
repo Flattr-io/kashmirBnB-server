@@ -8,6 +8,7 @@ import { init as initDatabase } from '../configuration/database.config';
 import { init as initRouter } from '../configuration/router.config';
 import { errorHandler } from '../middlewares/error-handler.middleware';
 import { setupSwagger } from './swagger';
+import { WeatherScheduler } from '../utils/weather.scheduler';
 
 dotenv.config();
 
@@ -19,6 +20,8 @@ export class AppBootstrap {
         origin,
         optionsSuccessStatus: 200,
     };
+
+    private scheduler?: WeatherScheduler;
 
     constructor() {
         this.app = express();
@@ -58,6 +61,13 @@ export class AppBootstrap {
         return this;
     }
 
+    initSchedulers() {
+        this.scheduler = new WeatherScheduler();
+        this.scheduler.start();
+        console.log('⏰ WeatherScheduler initialized (every 3 hours).');
+        return this;
+    }
+
     listen() {
         const port = process.env.PORT || 3000;
         this.app.listen(port, () => {
@@ -66,7 +76,7 @@ export class AppBootstrap {
     }
 
     static run() {
-        new AppBootstrap().initDatabase().setMiddlewares().setRoutes().setErrorHandler().listen();
+        new AppBootstrap().initDatabase().setMiddlewares().setRoutes().setErrorHandler().initSchedulers().listen();
     }
 
     static runInTestMode() {

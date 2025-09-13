@@ -58,7 +58,16 @@ router.get('/', [authMiddleware], async (req: Request, res: Response) => {
  *         description: Unauthorized
  */
 router.post('/', [authMiddleware], async (req: Request, res: Response) => {
-    const destination = await destinationService.create(req.body);
+    const {name, slug, area, center, center_lat, center_lng, metadata} = req.body;
+    const destination = await destinationService.create({
+        name: name ,
+        slug: slug,
+        area: area,
+        center: center,
+        center_lat: center_lat,
+        center_lng: center_lng,
+        metadata: metadata
+    });
     res.send(destination);
 });
 
@@ -87,7 +96,7 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  */
 router.get('/:destinationId', [authMiddleware], async (req: Request, res: Response) => {
     const { destinationId } = req.params;
-    const destination = await destinationService.getById(destinationId);
+    const destination = await destinationService.getById({ destinationId: destinationId });
     res.send(destination);
 });
 
@@ -122,7 +131,7 @@ router.get('/:destinationId', [authMiddleware], async (req: Request, res: Respon
 router.patch('/:destinationId', [authMiddleware], async (req: Request, res: Response) => {
     const { destinationId } = req.params;
     const { payload } = req.body;
-    const destination = await destinationService.update(destinationId, payload);
+    const destination = await destinationService.update({ destinationId, payload });
     res.send(destination);
 });
 
@@ -150,7 +159,7 @@ router.patch('/:destinationId', [authMiddleware], async (req: Request, res: Resp
  */
 router.delete('/:destinationId', [authMiddleware], async (req: Request, res: Response) => {
     const { destinationId } = req.params;
-    const result = await destinationService.delete(destinationId);
+    const result = await destinationService.delete({ destinationId });
     res.send(result);
 });
 

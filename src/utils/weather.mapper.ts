@@ -1,6 +1,9 @@
 import { HourlyForecast, DailyForecast } from '../interfaces/weather.interface';
 
 export class WeatherMapper {
+    /**
+     * Map raw hourly data from Tomorrow.io to HourlyForecast[]
+     */
     static mapHourly(hourly: any[] = []): HourlyForecast[] {
         return hourly.map((item) => ({
             time: item.time,
@@ -19,6 +22,9 @@ export class WeatherMapper {
         }));
     }
 
+    /**
+     * Map raw daily data from Tomorrow.io to DailyForecast[]
+     */
     static mapDaily(daily: any[] = []): DailyForecast[] {
         return daily.map((item) => ({
             time: item.time,

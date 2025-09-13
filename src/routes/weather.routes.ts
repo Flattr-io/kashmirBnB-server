@@ -10,8 +10,8 @@ const weatherService = new WeatherService();
  * @access Public
  */
 router.post('/forecast', async (req: Request, res: Response) => {
-    const { lat, lon } = req.body;
-    const forecast = await weatherService.getForecast({ lat, lon });
+    const { destinationId } = req.body;
+    const forecast = await weatherService.getStoredForecast(destinationId);
     res.send(forecast);
 });
 
