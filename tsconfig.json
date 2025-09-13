@@ -1,9 +1,9 @@
 {
     "compilerOptions": {
         /* Core settings */
-        "target": "ES2019",
-        "module": "NodeNext",
-        "moduleResolution": "NodeNext",
+        "target": "ES2020",
+        "module": "commonjs",
+        "moduleResolution": "node",
         "rootDir": "src",
         "outDir": "build",
         "incremental": true,
@@ -22,7 +22,10 @@
 
         /* Debugging & declarations */
         "declaration": true,
-        "sourceMap": true
+        "sourceMap": true,
+
+        /* Ensure Node globals like process are available */
+        "types": ["node"]
     },
     "include": ["src/**/*.ts", "src/*.d.ts", "index.d.ts"],
     "exclude": ["node_modules", "build"]
