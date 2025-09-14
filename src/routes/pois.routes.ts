@@ -49,8 +49,7 @@ router.get('/', [authMiddleware], async (req: Request, res: Response) => {
  *         description: Unauthorized
  */
 router.post('/', [authMiddleware], async (req: Request, res: Response) => {
-    const { name, category_id, latitude, longitude, created_by } = req.body;
-    const poi = await poiService.create({ name, category_id, latitude, longitude, created_by });
+    const poi = await poiService.create({ ...req.body });
     res.send(poi);
 });
 
@@ -118,8 +117,7 @@ router.get('/:poiId', [authMiddleware], async (req: Request, res: Response) => {
  */
 router.patch('/:poiId', [authMiddleware], async (req: Request, res: Response) => {
     const { poiId } = req.params;
-    const { payload } = req.body;
-    const poi = await poiService.update({ poiId: poiId, ...payload });
+    const poi = await poiService.update({ poiId, ...req.body });
     res.send(poi);
 });
 
@@ -150,8 +148,47 @@ router.patch('/:poiId', [authMiddleware], async (req: Request, res: Response) =>
  */
 router.delete('/:poiId', [authMiddleware], async (req: Request, res: Response) => {
     const { poiId } = req.params;
-    const result = await poiService.delete({ poiId: poiId });
+    const result = await poiService.delete({ poiId });
     res.send(result);
+});
+
+/**
+ * @swagger
+ * /pois/by-destination:
+ *   get:
+ *     summary: Get POIs by destination and zoom level
+ *     description: Returns POIs filtered by destination, zoom level, and priority rules.
+ *     tags:
+ *       - POIs
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: destinationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The ID of the destination
+ *       - in: query
+ *         name: zoomLevel
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Current map zoom level
+ *     responses:
+ *       200:
+ *         description: Filtered POIs
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/by-destination', [authMiddleware], async (req: Request, res: Response) => {
+    const { destinationId, zoomLevel, limit } = req.query;
+    const pois = await poiService.getByDestinationAndZoom({
+        destinationId: destinationId as string,
+        zoom: Number(zoomLevel),
+        limit: Number(limit),
+    });
+    res.send(pois);
 });
 
 export default router;

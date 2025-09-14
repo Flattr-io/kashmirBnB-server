@@ -20,4 +20,4 @@ services:
           - key: CORS_ORIGINS
             value: '*'
       autoDeploy: true
-      branch: main
+      branch: dev

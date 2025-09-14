@@ -6,6 +6,7 @@ import { Order, POIFeatureType, POISort } from '../enums/poi.enum';
  */
 export interface IPOI {
     id: string;
+    destination_id: string; // Link to destination
     name: string;
     description?: string;
     category_id: string;
@@ -16,6 +17,12 @@ export interface IPOI {
     images: string[];
     features: IPOIFeature[];
     is_active: boolean;
+
+    // Map visibility controls
+    min_zoom: number;
+    max_zoom: number;
+    priority: number;
+
     created_by: string;
     created_at: string;
     updated_at: string;
@@ -75,6 +82,7 @@ export interface IPOIRating {
  * Create POI request DTO
  */
 export interface ICreatePOIRequest {
+    destination_id: string;
     name: string;
     description?: string;
     category_id: string;
@@ -83,12 +91,16 @@ export interface ICreatePOIRequest {
     elevation?: number;
     images?: string[];
     features?: IPOIFeature[];
+    min_zoom?: number;
+    max_zoom?: number;
+    priority?: number;
 }
 
 /**
  * Update POI request DTO
  */
 export interface IUpdatePOIRequest {
+    destination_id?: string;
     name?: string;
     description?: string;
     category_id?: string;
@@ -98,6 +110,9 @@ export interface IUpdatePOIRequest {
     images?: string[];
     features?: IPOIFeature[];
     is_active?: boolean;
+    min_zoom?: number;
+    max_zoom?: number;
+    priority?: number;
 }
 
 /**
@@ -106,6 +121,7 @@ export interface IUpdatePOIRequest {
 export interface IPOISearchParams {
     query?: string;
     category_id?: string;
+    destination_id?: string;
     latitude?: number;
     longitude?: number;
     radius?: number; // in km
@@ -113,6 +129,7 @@ export interface IPOISearchParams {
     features?: string[];
     sort?: POISort;
     order?: Order;
+    zoom?: number; // new: client-side zoom filtering
 }
 
 /**
@@ -152,10 +169,11 @@ export interface IPOIMarker {
     category: IPOICategory;
     name: string;
     rating?: number;
-    starting_price: {
+    starting_price?: {
         currency: string;
         amount: number;
     };
+    priority: number; // for rendering decisions
 }
 
 /**

@@ -10,7 +10,7 @@ export const init = (app: Express) => {
         res.status(200).json({
             status: 'healthy',
             timestamp: new Date().toISOString(),
-            service: 'revam-bnb-api'
+            service: 'revam-bnb-api',
         });
     });
 

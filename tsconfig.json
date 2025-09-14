@@ -27,6 +27,6 @@
         /* Ensure Node globals like process are available */
         "types": ["node"]
     },
-   "include": ["src/**/*.ts", "app.ts"],
+    "include": ["src/**/*.ts", "app.ts"],
     "exclude": ["node_modules", "build"]
 }
