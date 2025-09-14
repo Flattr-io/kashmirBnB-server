@@ -101,4 +101,4 @@ tmp/
 temp/
 
 # Supabase
-supabase/
+supabase/.temp/

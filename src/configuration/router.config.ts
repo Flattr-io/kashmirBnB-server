@@ -8,6 +8,147 @@ import { getDB } from './database.config';
 
 export const init = (app: Express) => {
 
+    /**
+     * @swagger
+     * /api/health:
+     *   get:
+     *     summary: Health check endpoint
+     *     description: Returns comprehensive health status of the API including database connectivity, memory usage, and uptime information. This endpoint is used for monitoring and load balancer health checks.
+     *     tags:
+     *       - Health
+     *     responses:
+     *       200:
+     *         description: API is healthy and all systems operational
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 status:
+     *                   type: string
+     *                   enum: [healthy, unhealthy]
+     *                   description: Overall health status
+     *                   example: healthy
+     *                 timestamp:
+     *                   type: string
+     *                   format: date-time
+     *                   description: Health check timestamp
+     *                   example: "2024-01-15T10:30:00Z"
+     *                 service:
+     *                   type: string
+     *                   description: Service name
+     *                   example: "revam-bnb-api"
+     *                 version:
+     *                   type: string
+     *                   description: API version
+     *                   example: "1.0.0"
+     *                 checks:
+     *                   type: object
+     *                   properties:
+     *                     database:
+     *                       type: object
+     *                       properties:
+     *                         status:
+     *                           type: string
+     *                           enum: [pass, fail]
+     *                           description: Database connection status
+     *                           example: pass
+     *                         error:
+     *                           type: string
+     *                           description: Error message if database check fails
+     *                     uptime:
+     *                       type: number
+     *                       description: Server uptime in seconds
+     *                       example: 3600
+     *                     responseTime:
+     *                       type: number
+     *                       description: Health check response time in milliseconds
+     *                       example: 25
+     *                     memory:
+     *                       type: object
+     *                       properties:
+     *                         used:
+     *                           type: number
+     *                           description: Used memory in MB
+     *                           example: 45
+     *                         total:
+     *                           type: number
+     *                           description: Total memory in MB
+     *                           example: 512
+     *             examples:
+     *               healthy:
+     *                 summary: Healthy system
+     *                 value:
+     *                   status: "healthy"
+     *                   timestamp: "2024-01-15T10:30:00Z"
+     *                   service: "revam-bnb-api"
+     *                   version: "1.0.0"
+     *                   checks:
+     *                     database:
+     *                       status: "pass"
+     *                     uptime: 3600
+     *                     responseTime: 25
+     *                     memory:
+     *                       used: 45
+     *                       total: 512
+     *       503:
+     *         description: API is unhealthy - Database connection issues or system problems
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 status:
+     *                   type: string
+     *                   enum: [unhealthy]
+     *                   description: Overall health status
+     *                   example: unhealthy
+     *                 timestamp:
+     *                   type: string
+     *                   format: date-time
+     *                   description: Health check timestamp
+     *                   example: "2024-01-15T10:30:00Z"
+     *                 service:
+     *                   type: string
+     *                   description: Service name
+     *                   example: "revam-bnb-api"
+     *                 checks:
+     *                   type: object
+     *                   properties:
+     *                     database:
+     *                       type: object
+     *                       properties:
+     *                         status:
+     *                           type: string
+     *                           enum: [fail]
+     *                           description: Database connection status
+     *                           example: fail
+     *                         error:
+     *                           type: string
+     *                           description: Database error message
+     *                           example: "Connection timeout"
+     *                     uptime:
+     *                       type: number
+     *                       description: Server uptime in seconds
+     *                       example: 3600
+     *                     responseTime:
+     *                       type: number
+     *                       description: Health check response time in milliseconds
+     *                       example: 5000
+     *             examples:
+     *               database_error:
+     *                 summary: Database connection error
+     *                 value:
+     *                   status: "unhealthy"
+     *                   timestamp: "2024-01-15T10:30:00Z"
+     *                   service: "revam-bnb-api"
+     *                   checks:
+     *                     database:
+     *                       status: "fail"
+     *                       error: "Connection timeout"
+     *                     uptime: 3600
+     *                     responseTime: 5000
+     */
     app.get('/api/health', async (req, res) => {
         try {
             const startTime = Date.now();
