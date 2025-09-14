@@ -18,5 +18,5 @@ export const init = (app: Express) => {
     app.use('/api/users', userRoutes);
     app.use('/api/auth', authRoutes);
     app.use('/api/weather', weatherRoutes);
-    app.use('api/destinations', destinationRoutes);
+    app.use('/api/destinations', destinationRoutes);
 };
