@@ -9,6 +9,16 @@ export class POIRatingService {
     }
 
     /**
+     * @desc Get all ratings
+     */
+    async getAll(): Promise<IPOIRating[]> {
+        const { data, error } = await this.db.from('poi_ratings').select('*');
+
+        if (error) throw new Error(error.message);
+        return data as IPOIRating[];
+    }
+
+    /**
      * @desc Get all ratings for a POI
      */
     async getAllByPOI(params: { poiId: string }): Promise<IPOIRating[]> {

@@ -10,20 +10,28 @@ const poiCategoryService = new POICategoryService();
  * /poi-categories:
  *   get:
  *     summary: Get all POI categories
- *     description: Returns a list of all POI categories.
+ *     description: Returns a list of all POI categories. This endpoint is publicly accessible.
  *     tags:
  *       - POI Categories
- *     security:
- *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: List of POI categories
- *       401:
- *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/POICategory'
+ *       500:
+ *         description: Internal server error
  */
-router.get('/', [authMiddleware], async (req: Request, res: Response) => {
-    const categories = await poiCategoryService.getAllCategories();
-    res.send(categories);
+router.get('/', async (req: Request, res: Response) => {
+    try {
+        const categories = await poiCategoryService.getAllCategories();
+        res.json(categories);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Failed to fetch POI categories', message: error.message });
+    }
 });
 
 /**
@@ -72,11 +80,9 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  * /poi-categories/{categoryId}:
  *   get:
  *     summary: Get POI category by ID
- *     description: Returns a single POI category by its ID.
+ *     description: Returns a single POI category by its ID. This endpoint is publicly accessible.
  *     tags:
  *       - POI Categories
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: categoryId
@@ -87,15 +93,27 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  *     responses:
  *       200:
  *         description: POI category object
- *       401:
- *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/POICategory'
  *       404:
  *         description: POI category not found
+ *       500:
+ *         description: Internal server error
  */
-router.get('/:categoryId', [authMiddleware], async (req: Request, res: Response) => {
-    const { categoryId } = req.params;
-    const category = await poiCategoryService.getById({ categoryId: categoryId });
-    res.send(category);
+router.get('/:categoryId', async (req: Request, res: Response) => {
+    try {
+        const { categoryId } = req.params;
+        const category = await poiCategoryService.getById({ categoryId: categoryId });
+        res.json(category);
+    } catch (error: any) {
+        if (error.message?.includes('not found')) {
+            res.status(404).json({ error: 'POI category not found' });
+        } else {
+            res.status(500).json({ error: 'Failed to fetch POI category', message: error.message });
+        }
+    }
 });
 
 /**

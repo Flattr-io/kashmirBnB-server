@@ -4,6 +4,10 @@ import authRoutes from '../routes/auth.routes';
 import userRoutes from '../routes/user.routes';
 import weatherRoutes from '../routes/weather.routes';
 import destinationRoutes from '../routes/destination.routes';
+import poisRoutes from '../routes/pois.routes';
+import poiCategoryRoutes from '../routes/poi.category.routes';
+import poiRatingRoutes from '../routes/poi-rating.routes';
+import poiWishlistRoutes from '../routes/poi.wishlist.routes';
 import { getDB } from './database.config';
 
 export const init = (app: Express) => {
@@ -205,4 +209,8 @@ export const init = (app: Express) => {
     app.use('/api/auth', authRoutes);
     app.use('/api/weather', weatherRoutes);
     app.use('/api/destinations', destinationRoutes);
+    app.use('/api/pois', poisRoutes);
+    app.use('/api/poi-categories', poiCategoryRoutes);
+    app.use('/api/poi-ratings', poiRatingRoutes);
+    app.use('/api/poi-wishlist', poiWishlistRoutes);
 };

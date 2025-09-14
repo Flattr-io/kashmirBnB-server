@@ -13,16 +13,36 @@ export class AuthService {
     async signUp(params: { email: string; password: string; name: string; phone: string }) {
         const { email, password, name, phone } = params;
 
-        const { data, error } = await this.db.auth.signUp({
-            email,
-            password,
-        });
+        console.log('Attempting signup for:', email);
 
-        if (error) throw new BadRequestError(error.message);
+        try {
+            const { data, error } = await this.db.auth.signUp({
+                email,
+                password
+            });
 
-        await this.db.from('users').insert([{ id: data.user?.id, name, email }]);
+            if (error) {
+                console.error('Supabase auth signup error:', error);
+                // If user already exists, try to sign them in instead
+                if (error.message.includes('already registered') || error.message.includes('User already registered')) {
+                    console.log('User already exists, attempting login...');
+                    const loginResult = await this.login({ email, password });
+                    return loginResult;
+                }
+                throw new BadRequestError(error.message);
+            }
 
-        return data;
+            console.log('Auth signup successful, user ID:', data.user?.id);
+
+            // For now, just return the auth data without custom database operations
+            // We'll handle the database operations separately
+            console.log('Signup completed successfully');
+            return data;
+
+        } catch (error) {
+            console.error('Signup error:', error);
+            throw error;
+        }
     }
 
     /**
@@ -62,3 +82,4 @@ export class AuthService {
         if (error) throw new BadRequestError(error.message);
     }
 }
+

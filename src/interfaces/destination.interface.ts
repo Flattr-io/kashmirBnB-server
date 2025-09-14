@@ -19,9 +19,9 @@ export interface IDestination {
     name: string;
     slug: string;
 
-    // Geometry fields
-    area: IGeoJSONPolygon;
-    center: IGeoJSONPoint;
+    // Geometry fields (optional for cases where PostGIS is not available)
+    area?: IGeoJSONPolygon | null;
+    center?: IGeoJSONPoint | null;
     center_lat: number;
     center_lng: number;
 

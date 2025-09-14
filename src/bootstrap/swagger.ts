@@ -6,14 +6,13 @@ const getServerConfig = () => {
     const port = process.env.PORT || 3000;
     const isProduction = process.env.NODE_ENV === 'production';
     
-    if (isProduction && process.env.RENDER_EXTERNAL_URL) {
+
         return [
-            { url: process.env.RENDER_EXTERNAL_URL, description: 'Production server' },
-            { url: `http://localhost:${port}`, description: 'Local server' }
-        ];
-    }
+            { url: `https://kashmirbnbserver-4vgs.onrender.com/api`, description: 'Production server' },
+            { url: `http://localhost:${port}/api`, description: 'Local server' }
+    ];
     
-    return [{ url: `http://localhost:${port}`, description: 'Local server' }];
+    return [{ url: `http://localhost:${port}/api`, description: 'Local server' }];
 };
 
 const options: swaggerJSDoc.Options = {

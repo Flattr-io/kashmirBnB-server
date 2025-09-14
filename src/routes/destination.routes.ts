@@ -10,20 +10,28 @@ const destinationService = new DestinationService();
  * /destinations:
  *   get:
  *     summary: Get all destinations
- *     description: Returns a list of all destinations.
+ *     description: Returns a list of all destinations. This endpoint is publicly accessible.
  *     tags:
  *       - Destinations
- *     security:
- *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: List of destinations
- *       401:
- *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Destination'
+ *       500:
+ *         description: Internal server error
  */
-router.get('/', [authMiddleware], async (req: Request, res: Response) => {
-    const destinations = await destinationService.getAll();
-    res.send(destinations);
+router.get('/', async (req: Request, res: Response) => {
+    try {
+        const destinations = await destinationService.getAll();
+        res.json(destinations);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Failed to fetch destinations', message: error.message });
+    }
 });
 
 /**
@@ -76,11 +84,9 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  * /destinations/{id}:
  *   get:
  *     summary: Get destination by ID
- *     description: Returns a single destination.
+ *     description: Returns a single destination by its ID. This endpoint is publicly accessible.
  *     tags:
  *       - Destinations
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -91,13 +97,27 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  *     responses:
  *       200:
  *         description: Destination object
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Destination'
  *       404:
  *         description: Destination not found
+ *       500:
+ *         description: Internal server error
  */
-router.get('/:destinationId', [authMiddleware], async (req: Request, res: Response) => {
-    const { destinationId } = req.params;
-    const destination = await destinationService.getById({ destinationId: destinationId });
-    res.send(destination);
+router.get('/:destinationId', async (req: Request, res: Response) => {
+    try {
+        const { destinationId } = req.params;
+        const destination = await destinationService.getById({ destinationId: destinationId });
+        res.json(destination);
+    } catch (error: any) {
+        if (error.message?.includes('not found')) {
+            res.status(404).json({ error: 'Destination not found' });
+        } else {
+            res.status(500).json({ error: 'Failed to fetch destination', message: error.message });
+        }
+    }
 });
 
 /**

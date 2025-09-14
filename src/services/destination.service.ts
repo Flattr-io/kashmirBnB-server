@@ -17,31 +17,75 @@ export class DestinationService {
      * @desc Get all destinations
      */
     async getAll(): Promise<IDestination[]> {
-        const { data, error } = await this.db
-            .from('destinations')
-            .select(
+        try {
+            const { data, error } = await this.db
+                .from('destinations')
+                .select(
+                    `
+                    id,
+                    name,
+                    slug,
+                    metadata,
+                    created_by,
+                    created_at,
+                    updated_at,
+                    center_lat,
+                    center_lng,
+                    area_geojson:ST_AsGeoJSON(area),
+                    center_geojson:ST_AsGeoJSON(center)
                 `
-                id,
-                name,
-                slug,
-                metadata,
-                created_by,
-                created_at,
-                updated_at,
-                center_lat,
-                center_lng,
-                area_geojson:ST_AsGeoJSON(area),
-                center_geojson:ST_AsGeoJSON(center)
-            `
-            )
-            .returns<RowWithGeoJSON[]>();
+                )
+                .returns<RowWithGeoJSON[]>();
 
-        if (error) {
+            if (error) {
+                // If PostGIS functions are not available, try without them
+                if (error.message.includes('ST_AsGeoJSON') || error.message.includes('relationship')) {
+                    const { data: simpleData, error: simpleError } = await this.db
+                        .from('destinations')
+                        .select(
+                            `
+                            id,
+                            name,
+                            slug,
+                            metadata,
+                            created_by,
+                            created_at,
+                            updated_at,
+                            center_lat,
+                            center_lng
+                        `
+                        );
+
+                    if (simpleError) {
+                        throw new BadRequestError(simpleError.message);
+                    }
+
+                    // Map simple data without GeoJSON
+                    const destinations = simpleData.map((row: any) => ({
+                        id: row.id,
+                        name: row.name,
+                        slug: row.slug,
+                        area: null,
+                        center: null,
+                        center_lat: row.center_lat,
+                        center_lng: row.center_lng,
+                        metadata: row.metadata ?? undefined,
+                        created_by: row.created_by,
+                        created_at: row.created_at,
+                        updated_at: row.updated_at,
+                    } as IDestination));
+
+                    return destinations;
+                }
+                throw new BadRequestError(error.message);
+            }
+
+            const destinations = data.map((row) => this.mapRow(row));
+            return destinations;
+        } catch (error: any) {
+            console.error('Error fetching destinations:', error);
             throw new BadRequestError(error.message);
         }
-
-        const destinations = data.map((row) => this.mapRow(row));
-        return destinations;
     }
 
     /**

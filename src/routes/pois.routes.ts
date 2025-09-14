@@ -10,20 +10,28 @@ const poiService = new PoiService();
  * /pois:
  *   get:
  *     summary: Get all POIs
- *     description: Returns a list of all points of interest.
+ *     description: Returns a list of all points of interest. This endpoint is publicly accessible.
  *     tags:
  *       - POIs
- *     security:
- *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: List of POIs
- *       401:
- *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/POI'
+ *       500:
+ *         description: Internal server error
  */
-router.get('/', [authMiddleware], async (req: Request, res: Response) => {
-    const pois = await poiService.getAll();
-    res.send(pois);
+router.get('/', async (req: Request, res: Response) => {
+    try {
+        const pois = await poiService.getAll();
+        res.json(pois);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Failed to fetch POIs', message: error.message });
+    }
 });
 
 /**
@@ -58,11 +66,9 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  * /pois/{poiId}:
  *   get:
  *     summary: Get POI by ID
- *     description: Returns a single point of interest by its ID.
+ *     description: Returns a single point of interest by its ID. This endpoint is publicly accessible.
  *     tags:
  *       - POIs
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: poiId
@@ -73,15 +79,27 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  *     responses:
  *       200:
  *         description: POI object
- *       401:
- *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/POI'
  *       404:
  *         description: POI not found
+ *       500:
+ *         description: Internal server error
  */
-router.get('/:poiId', [authMiddleware], async (req: Request, res: Response) => {
-    const { poiId } = req.params;
-    const poi = await poiService.getById({ poiId });
-    res.send(poi);
+router.get('/:poiId', async (req: Request, res: Response) => {
+    try {
+        const { poiId } = req.params;
+        const poi = await poiService.getById({ poiId });
+        res.json(poi);
+    } catch (error: any) {
+        if (error.message?.includes('not found')) {
+            res.status(404).json({ error: 'POI not found' });
+        } else {
+            res.status(500).json({ error: 'Failed to fetch POI', message: error.message });
+        }
+    }
 });
 
 /**
@@ -157,11 +175,9 @@ router.delete('/:poiId', [authMiddleware], async (req: Request, res: Response) =
  * /pois/by-destination:
  *   get:
  *     summary: Get POIs by destination and zoom level
- *     description: Returns POIs filtered by destination, zoom level, and priority rules.
+ *     description: Returns POIs filtered by destination, zoom level, and priority rules. This endpoint is publicly accessible.
  *     tags:
  *       - POIs
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: destinationId
@@ -175,20 +191,46 @@ router.delete('/:poiId', [authMiddleware], async (req: Request, res: Response) =
  *         schema:
  *           type: integer
  *         description: Current map zoom level
+ *       - in: query
+ *         name: limit
+ *         required: false
+ *         schema:
+ *           type: integer
+ *         description: Maximum number of POIs to return
  *     responses:
  *       200:
  *         description: Filtered POIs
- *       401:
- *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/POI'
+ *       400:
+ *         description: Bad request - missing required parameters
+ *       500:
+ *         description: Internal server error
  */
-router.get('/by-destination', [authMiddleware], async (req: Request, res: Response) => {
-    const { destinationId, zoomLevel, limit } = req.query;
-    const pois = await poiService.getByDestinationAndZoom({
-        destinationId: destinationId as string,
-        zoom: Number(zoomLevel),
-        limit: Number(limit),
-    });
-    res.send(pois);
+router.get('/by-destination', async (req: Request, res: Response) => {
+    try {
+        const { destinationId, zoomLevel, limit } = req.query;
+        
+        if (!destinationId || !zoomLevel) {
+            return res.status(400).json({ 
+                error: 'Missing required parameters', 
+                message: 'destinationId and zoomLevel are required' 
+            });
+        }
+
+        const pois = await poiService.getByDestinationAndZoom({
+            destinationId: destinationId as string,
+            zoom: Number(zoomLevel),
+            limit: Number(limit),
+        });
+        res.json(pois);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Failed to fetch POIs by destination', message: error.message });
+    }
 });
 
 export default router;

@@ -7,14 +7,41 @@ const poiRatingService = new POIRatingService();
 
 /**
  * @swagger
+ * /poi-ratings:
+ *   get:
+ *     summary: Get all POI ratings
+ *     description: Returns a list of all POI ratings. This endpoint is publicly accessible.
+ *     tags:
+ *       - POI Ratings
+ *     responses:
+ *       200:
+ *         description: List of all POI ratings
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/POIRating'
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/', async (req: Request, res: Response) => {
+    try {
+        const ratings = await poiRatingService.getAll();
+        res.json(ratings);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Failed to fetch POI ratings', message: error.message });
+    }
+});
+
+/**
+ * @swagger
  * /poi-ratings/poi/{poiId}:
  *   get:
  *     summary: Get all ratings for a POI
- *     description: Returns all ratings for a specific POI.
+ *     description: Returns all ratings for a specific POI. This endpoint is publicly accessible.
  *     tags:
  *       - POI Ratings
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: poiId
@@ -25,13 +52,29 @@ const poiRatingService = new POIRatingService();
  *     responses:
  *       200:
  *         description: List of ratings
- *       401:
- *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/POIRating'
+ *       404:
+ *         description: POI not found
+ *       500:
+ *         description: Internal server error
  */
-router.get('/poi/:poiId', [authMiddleware], async (req: Request, res: Response) => {
-    const { poiId } = req.params;
-    const ratings = await poiRatingService.getAllByPOI({ poiId: poiId });
-    res.send(ratings);
+router.get('/poi/:poiId', async (req: Request, res: Response) => {
+    try {
+        const { poiId } = req.params;
+        const ratings = await poiRatingService.getAllByPOI({ poiId: poiId });
+        res.json(ratings);
+    } catch (error: any) {
+        if (error.message?.includes('not found')) {
+            res.status(404).json({ error: 'POI not found' });
+        } else {
+            res.status(500).json({ error: 'Failed to fetch POI ratings', message: error.message });
+        }
+    }
 });
 
 /**
@@ -39,11 +82,9 @@ router.get('/poi/:poiId', [authMiddleware], async (req: Request, res: Response) 
  * /poi-ratings/{ratingId}:
  *   get:
  *     summary: Get a rating by ID
- *     description: Returns a single rating.
+ *     description: Returns a single rating by its ID. This endpoint is publicly accessible.
  *     tags:
  *       - POI Ratings
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: ratingId
@@ -54,15 +95,27 @@ router.get('/poi/:poiId', [authMiddleware], async (req: Request, res: Response) 
  *     responses:
  *       200:
  *         description: Rating object
- *       401:
- *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/POIRating'
  *       404:
  *         description: Rating not found
+ *       500:
+ *         description: Internal server error
  */
-router.get('/:ratingId', [authMiddleware], async (req: Request, res: Response) => {
-    const { ratingId } = req.params;
-    const rating = await poiRatingService.getById({ ratingId: ratingId });
-    res.send(rating);
+router.get('/:ratingId', async (req: Request, res: Response) => {
+    try {
+        const { ratingId } = req.params;
+        const rating = await poiRatingService.getById({ ratingId: ratingId });
+        res.json(rating);
+    } catch (error: any) {
+        if (error.message?.includes('not found')) {
+            res.status(404).json({ error: 'Rating not found' });
+        } else {
+            res.status(500).json({ error: 'Failed to fetch rating', message: error.message });
+        }
+    }
 });
 
 /**
