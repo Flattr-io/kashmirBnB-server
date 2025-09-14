@@ -57,7 +57,7 @@ export class AppBootstrap {
     initDatabase() {
         const url = process.env.SUPABASE_URL!;
         const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-        initDatabase(url, key); // initializes singleton
+        initDatabase(url, key);
         return this;
     }
 

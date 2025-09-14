@@ -17,7 +17,6 @@ build/
 dist/
 *.tsbuildinfo
 
-supabase/
 # Logs
 logs
 *.log
