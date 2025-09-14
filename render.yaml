@@ -1,0 +1,47 @@
+# KashmirBNBServer - Render.com Deployment Configuration
+# This file defines the infrastructure and deployment settings for the Kashmir Tourism Backend API
+
+services:
+  - type: web
+    name: kashmir-bnb-api
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm ci --no-audit --no-fund && npm run build && npm prune --production
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    branch: main
+    envVars:
+      # Required Environment Variables (set these in Render Dashboard)
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: SUPABASE_URL
+        sync: false  # Set this in Render Dashboard
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false  # Set this in Render Dashboard
+      - key: TOMORROW_API_KEY
+        sync: false  # Set this in Render Dashboard
+      - key: MAPBOX_API_KEY
+        sync: false  # Set this in Render Dashboard
+      - key: CORS_ORIGINS
+        value: "*"  # Update this with your frontend domain in production
+      # Optional Environment Variables
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          type: web
+          name: kashmir-bnb-api
+          property: host
+
+# Free Plan Limitations:
+# - 512MB RAM, 0.1 CPU (shared)
+# - No persistent disk storage
+# - No autoscaling (single instance only)
+# - Services may sleep after 15 minutes of inactivity
+# - 100GB bandwidth per month
+# - Singapore region for optimal Asia-Pacific performance
+
+# Note: Since you're using remote Supabase, no database service is defined here
+# Your Supabase database should be configured separately and connected via environment variables

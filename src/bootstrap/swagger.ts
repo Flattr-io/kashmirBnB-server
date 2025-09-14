@@ -2,6 +2,20 @@ import swaggerJSDoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import { Express } from 'express';
 
+const getServerConfig = () => {
+    const port = process.env.PORT || 3000;
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (isProduction && process.env.RENDER_EXTERNAL_URL) {
+        return [
+            { url: process.env.RENDER_EXTERNAL_URL, description: 'Production server' },
+            { url: `http://localhost:${port}`, description: 'Local server' }
+        ];
+    }
+    
+    return [{ url: `http://localhost:${port}`, description: 'Local server' }];
+};
+
 const options: swaggerJSDoc.Options = {
     definition: {
         openapi: '3.0.0',
@@ -10,7 +24,7 @@ const options: swaggerJSDoc.Options = {
             version: '1.0.0',
             description: 'API documentation for Revam-BNB backend',
         },
-        servers: [{ url: 'http://localhost:4500', description: 'Local server' }],
+        servers: getServerConfig(),
         components: {
             securitySchemes: {
                 bearerAuth: {

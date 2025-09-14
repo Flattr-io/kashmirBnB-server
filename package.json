@@ -1,22 +1,36 @@
 {
-    "name": "revam-bnb",
+    "name": "kashmir-bnb-server",
     "version": "1.0.0",
-    "description": "",
+    "description": "Kashmir Tourism Backend API - Weather, destinations, and POI management",
     "main": "build/app.js",
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
         "dev": "nodemon app.ts",
         "build": "tsc",
         "start": "node build/app.js",
-        "lint": "eslint . --ext .ts"
+        "start:prod": "NODE_ENV=production node build/app.js",
+        "lint": "eslint . --ext .ts",
+        "lint:fix": "eslint . --ext .ts --fix",
+        "health": "node -e \"require('http').get('http://localhost:3000/api/health', (res) => { console.log('Health check:', res.statusCode); process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', (err) => { console.log('Health check failed:', err.message); process.exit(1); })\"",
+        "postinstall": "npm run build",
+        "prestart": "npm run build"
     },
-    "keywords": [],
-    "author": "",
+    "keywords": ["kashmir", "tourism", "api", "weather", "destinations", "nodejs", "typescript"],
+    "author": "KashmirBNB Team",
     "license": "ISC",
     "type": "commonjs",
     "engines": {
-        "node": "22.x"
+        "node": ">=22.0.0",
+        "npm": ">=10.0.0"
     },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/yourusername/KashmirBNBServer.git"
+    },
+    "bugs": {
+        "url": "https://github.com/yourusername/KashmirBNBServer/issues"
+    },
+    "homepage": "https://github.com/yourusername/KashmirBNBServer#readme",
     "dependencies": {
         "@hyperflake/http-errors": "^1.0.0",
         "@supabase/supabase-js": "^2.57.4",
@@ -43,8 +57,7 @@
         "node-cron": "^4.2.1",
         "socket.io": "^4.8.1",
         "swagger-jsdoc": "^6.2.8",
-        "swagger-ui-express": "^5.0.1",
-        "typescript": "^5.9.2"
+        "swagger-ui-express": "^5.0.1"
     },
     "devDependencies": {
         "@types/node": "^24.3.3",
@@ -52,6 +65,7 @@
         "prettier": "^3.6.2",
         "ts-node": "^10.9.2",
         "ts-node-dev": "^2.0.0",
-        "tsx": "^4.20.5"
+        "tsx": "^4.20.5",
+        "typescript": "^5.9.2"
     }
 }
