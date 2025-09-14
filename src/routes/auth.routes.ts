@@ -35,8 +35,8 @@ const authService = new AuthService();
  *         description: Bad request (e.g., invalid email or user exists)
  */
 router.post('/signup', async (req: Request, res: Response) => {
-    const { email, password, name } = req.body;
-    const user = await authService.signUp({ email, password, name });
+    const { email, password, name, phone} = req.body;
+    const user = await authService.signUp({ email, password, name, phone });
     res.send(user);
 });
 
