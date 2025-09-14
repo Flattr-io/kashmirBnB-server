@@ -1,0 +1,11 @@
+node_modules
+build
+*.log
+.git
+.gitignore
+.dockerignore
+.DS_Store
+*.md
+*.local
+*.env
+cl

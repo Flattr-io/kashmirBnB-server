@@ -26,7 +26,6 @@
         "@types/geojson": "^7946.0.16",
         "@types/moment-timezone": "^0.5.13",
         "@types/morgan": "^1.9.10",
-        "@types/node": "^24.3.3",
         "@types/node-cron": "^3.0.11",
         "@types/socket.io": "^3.0.1",
         "@types/swagger-jsdoc": "^6.0.4",
@@ -48,6 +47,7 @@
         "typescript": "^5.9.2"
     },
     "devDependencies": {
+        "@types/node": "^24.3.3",
         "nodemon": "^3.1.10",
         "prettier": "^3.6.2",
         "ts-node": "^10.9.2",
