@@ -12,6 +12,7 @@ COPY tsconfig.json ./
 COPY app.ts ./
 COPY src ./src
 
+# Build the TypeScript code
 RUN npm run build
 
 # Stage 2: Run the compiled app
@@ -25,7 +26,7 @@ WORKDIR /app
 
 # Copy package files and install only production dependencies
 COPY package*.json ./
-RUN npm ci --only=production --no-audit --no-fund && \
+RUN npm ci --omit=dev --no-audit --no-fund && \
     npm cache clean --force
 
 # Copy built application from builder stage
