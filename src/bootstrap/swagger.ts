@@ -1184,7 +1184,7 @@ const options: swaggerJSDoc.Options = {
     },
     apis: [
         process.env.NODE_ENV === 'production' 
-            ? './dist/routes/*.js'  // Production: compiled JS files
+            ? './build/src/routes/*.js'  // Production: compiled JS files in build directory
             : './src/routes/*.ts'   // Development: TypeScript files
     ]
 };
@@ -1203,13 +1203,14 @@ export const setupSwagger = (app: Express) => {
         customSiteTitle: 'Kashmir BnB API Documentation',
         customfavIcon: '/favicon.ico',
         swaggerOptions: {
+            deepLinking: true, // Enable deep linking to operations
             persistAuthorization: true,
             displayRequestDuration: true,
             filter: true,
             showExtensions: true,
             showCommonExtensions: true,
             tryItOutEnabled: true,
-            docExpansion: 'list', // Expand operations list by default
+            docExpansion: 'full', // Expand all operations and schemas by default
             defaultModelsExpandDepth: 2, // Show schema details by default
             defaultModelExpandDepth: 2,
             showRequestHeaders: true,
