@@ -49,21 +49,32 @@ router.get('/', async (req: Request, res: Response) => {
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               name:
- *                 type: string
- *               description:
- *                 type: string
- *               latitude:
- *                 type: number
- *               longitude:
- *                 type: number
+ *             $ref: '#/components/schemas/CreateDestinationRequest'
  *     responses:
  *       200:
- *         description: Destination created
+ *         description: Destination created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Destination'
+ *       400:
+ *         description: Bad request - Invalid input data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       401:
  *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post('/', [authMiddleware], async (req: Request, res: Response) => {
     const { name, slug, area, center, center_lat, center_lng, metadata } = req.body;

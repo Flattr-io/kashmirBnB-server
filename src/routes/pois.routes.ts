@@ -51,10 +51,36 @@ router.get('/', async (req: Request, res: Response) => {
  *           schema:
  *             $ref: '#/components/schemas/ICreatePOIRequest'
  *     responses:
- *       200:
- *         description: Created POI
+ *       201:
+ *         description: POI created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/POI'
+ *       400:
+ *         description: Bad request - Invalid input data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       401:
  *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       422:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ValidationError'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.post('/', [authMiddleware], async (req: Request, res: Response) => {
     const poi = await poiService.create({ ...req.body });
@@ -127,11 +153,41 @@ router.get('/:poiId', async (req: Request, res: Response) => {
  *             $ref: '#/components/schemas/IUpdatePOIRequest'
  *     responses:
  *       200:
- *         description: Updated POI
+ *         description: POI updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/POI'
+ *       400:
+ *         description: Bad request - Invalid input data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       401:
  *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       404:
  *         description: POI not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       422:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ValidationError'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 router.patch('/:poiId', [authMiddleware], async (req: Request, res: Response) => {
     const { poiId } = req.params;

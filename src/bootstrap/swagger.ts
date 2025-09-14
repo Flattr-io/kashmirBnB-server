@@ -6,11 +6,12 @@ const getServerConfig = () => {
     const port = process.env.PORT || 3000;
     const isProduction = process.env.NODE_ENV === 'production';
     
-
+    if (isProduction) {
         return [
             { url: `https://kashmirbnbserver-4vgs.onrender.com/api`, description: 'Production server' },
             { url: `http://localhost:${port}/api`, description: 'Local server' }
-    ];
+        ];
+    }
     
     return [{ url: `http://localhost:${port}/api`, description: 'Local server' }];
 };
@@ -584,6 +585,93 @@ const options: swaggerJSDoc.Options = {
                     },
                     required: ['destination_id', 'name', 'category_id', 'latitude', 'longitude', 'images', 'features'],
                 },
+                // Alias for compatibility with route annotations
+                ICreatePOIRequest: {
+                    $ref: '#/components/schemas/CreatePOIRequest',
+                },
+                // Update POI request schema
+                IUpdatePOIRequest: {
+                    type: 'object',
+                    properties: {
+                        destination_id: {
+                            type: 'string',
+                            format: 'uuid',
+                            description: 'ID of the destination this POI belongs to',
+                            example: '123e4567-e89b-12d3-a456-426614174000',
+                        },
+                        name: {
+                            type: 'string',
+                            description: 'POI name',
+                            example: 'Dal Lake',
+                        },
+                        description: {
+                            type: 'string',
+                            description: 'POI description',
+                            example: 'Famous lake in Srinagar known for its houseboats and shikaras',
+                        },
+                        category_id: {
+                            type: 'string',
+                            format: 'uuid',
+                            description: 'ID of the POI category',
+                            example: '123e4567-e89b-12d3-a456-426614174000',
+                        },
+                        latitude: {
+                            type: 'number',
+                            format: 'float',
+                            description: 'POI latitude coordinate',
+                            example: 34.0837,
+                        },
+                        longitude: {
+                            type: 'number',
+                            format: 'float',
+                            description: 'POI longitude coordinate',
+                            example: 74.7973,
+                        },
+                        elevation: {
+                            type: 'number',
+                            format: 'float',
+                            description: 'POI elevation in meters',
+                            example: 1585,
+                        },
+                        images: {
+                            type: 'array',
+                            items: {
+                                type: 'string',
+                                format: 'uri',
+                            },
+                            description: 'Array of image URLs',
+                            example: ['https://example.com/image1.jpg'],
+                        },
+                        features: {
+                            type: 'array',
+                            items: {
+                                $ref: '#/components/schemas/POIFeature',
+                            },
+                            description: 'Array of POI features',
+                        },
+                        is_active: {
+                            type: 'boolean',
+                            description: 'Whether the POI is active and visible',
+                            example: true,
+                        },
+                        min_zoom: {
+                            type: 'number',
+                            description: 'Minimum zoom level for map visibility',
+                            example: 10,
+                        },
+                        max_zoom: {
+                            type: 'number',
+                            description: 'Maximum zoom level for map visibility',
+                            example: 18,
+                        },
+                        priority: {
+                            type: 'number',
+                            description: 'Display priority (higher numbers appear first)',
+                            example: 5,
+                        },
+                    },
+                    // All properties are optional for updates
+                },
                 // POI Rating Schemas
                 POIRating: {
                     type: 'object',
@@ -1094,12 +1182,22 @@ const options: swaggerJSDoc.Options = {
         ],
         security: [{ bearerAuth: [] }],
     },
-    apis: ['./src/routes/*.ts'], // paths to files containing OpenAPI definitions
+    apis: [
+        process.env.NODE_ENV === 'production' 
+            ? './dist/routes/*.js'  // Production: compiled JS files
+            : './src/routes/*.ts'   // Development: TypeScript files
+    ]
 };
 
 export const swaggerSpec = swaggerJSDoc(options);
 
 export const setupSwagger = (app: Express) => {
+    // Serve the raw swagger spec JSON
+    app.get('/api-docs.json', (req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.send(swaggerSpec);
+    });
+
     app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
         customCss: '.swagger-ui .topbar { display: none }',
         customSiteTitle: 'Kashmir BnB API Documentation',
@@ -1111,6 +1209,29 @@ export const setupSwagger = (app: Express) => {
             showExtensions: true,
             showCommonExtensions: true,
             tryItOutEnabled: true,
+            docExpansion: 'list', // Expand operations list by default
+            defaultModelsExpandDepth: 2, // Show schema details by default
+            defaultModelExpandDepth: 2,
+            showRequestHeaders: true,
+            requestSnippetsEnabled: true,
+            requestSnippets: {
+                generators: {
+                    curl_bash: {
+                        title: 'cURL (bash)',
+                        syntax: 'bash'
+                    },
+                    curl_powershell: {
+                        title: 'cURL (PowerShell)',
+                        syntax: 'powershell'
+                    },
+                    curl_cmd: {
+                        title: 'cURL (CMD)',
+                        syntax: 'bash'
+                    }
+                },
+                defaultExpanded: false,
+                languages: null // null for all languages
+            },
             requestInterceptor: (req: any) => {
                 // Add any custom request headers or modifications here
                 return req;
@@ -1120,5 +1241,6 @@ export const setupSwagger = (app: Express) => {
                 return res;
             },
         },
+        explorer: true,
     }));
 };
