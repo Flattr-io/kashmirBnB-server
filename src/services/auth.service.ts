@@ -10,8 +10,8 @@ export class AuthService {
     /**
      * @desc Sign up a new user (Supabase Auth handles password hashing)
      */
-    async signUp(params: { email: string; password: string; name: string }) {
-        const { email, password, name } = params;
+    async signUp(params: { email: string; password: string; name: string; phone: string }) {
+        const { email, password, name, phone } = params;
 
         const { data, error } = await this.db.auth.signUp({
             email,
