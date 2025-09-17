@@ -28,7 +28,7 @@ export class WeatherService {
             const response = await axios.get(this.baseUrl, {
                 params: {
                     location: `${lat},${lon}`,
-                    timesteps: ['hourly', 'daily'].join(','),
+                    timesteps: ['1h'],
                     apikey: this.apiKey,
                 },
             });
@@ -36,13 +36,16 @@ export class WeatherService {
             const { timelines } = response.data as {
                 timelines?: {
                     hourly?: { time: string; values: Record<string, any> }[];
-                    daily?: { time: string; values: Record<string, any> }[];
                 };
             };
 
+            if (!timelines || !timelines.hourly) {
+                throw new BadRequestError('Invalid response format from Tomorrow.io API');
+            }
+
             return {
-                hourly: WeatherMapper.mapHourly(timelines?.hourly),
-                daily: WeatherMapper.mapDaily(timelines?.daily),
+                hourly: WeatherMapper.mapHourly(timelines.hourly),
+                daily: [], // No daily data when using only 1h timestep
             };
         } catch (error: any) {
             if (error.response) {
@@ -94,7 +97,7 @@ export class WeatherService {
     async getStoredForecast(destinationId: string) {
         const { data: snapshot, error } = await this.db
             .from('weather_snapshots')
-            .select('destination_id, snapshot_date, mapped, is_final, inserted_at, updated_at')
+            .select('destination_id, snapshot_date, mapped, is_final, created_at, updated_at')
             .eq('destination_id', destinationId)
             .order('updated_at', { ascending: false })
             .limit(1)
@@ -108,7 +111,7 @@ export class WeatherService {
             snapshot_date: snapshot.snapshot_date,
             mapped: snapshot.mapped,
             is_final: snapshot.is_final,
-            inserted_at: snapshot.inserted_at,
+            created_at: snapshot.created_at,
             updated_at: snapshot.updated_at,
         };
     }

@@ -31,11 +31,10 @@ export class WeatherScheduler {
         });
     }
 
-    private async updateWeatherSnapshots(isFinal: boolean = false) {
+    public async updateWeatherSnapshots(isFinal: boolean = false) {
         const { data: destinations, error } = await this.db
             .from('destinations')
-            .select('id, timezone, name, is_active')
-            .eq('is_active', true);
+            .select('id, name, center_lat, center_lng');
 
         if (error) {
             console.error('[WeatherScheduler] Failed to fetch destinations:', error.message);
@@ -43,13 +42,13 @@ export class WeatherScheduler {
         }
 
         if (!destinations || destinations.length === 0) {
-            console.log('[WeatherScheduler] No active destinations found.');
+            console.log('[WeatherScheduler] No destinations found.');
             return;
         }
 
         const updatePromises = destinations.map(async (dest) => {
             try {
-                const nowLocal = moment.tz(dest.timezone || 'UTC');
+                const nowLocal = moment.tz('Asia/Kolkata'); // Default to India timezone for Kashmir destinations
                 
                 await this.weatherService.fetchAndStoreForDestination(dest.id, isFinal);
 

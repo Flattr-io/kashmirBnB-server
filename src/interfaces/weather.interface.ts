@@ -66,8 +66,8 @@ export interface IDestinationWeather {
     id: string;
     destination_id: string;
     date: string; // YYYY-MM-DD
-    hourly: Array<{}>;
-    daily: Array<{}>;
+    hourly: HourlyForecast[];
+    daily: DailyForecast[]; // Empty array when using only 1h timestep
     is_final: boolean;
     created_at: string;
 }
@@ -78,7 +78,7 @@ export interface IDestinationWeather {
 export interface ICreateWeatherRequest {
     destination_id: string;
     date: string; // YYYY-MM-DD
-    hourly: Array<{}>;
-    daily: Array<{}>;
+    hourly: HourlyForecast[];
+    daily: DailyForecast[]; // Empty array when using only 1h timestep
     is_final?: boolean;
 }
