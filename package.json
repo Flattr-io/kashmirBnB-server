@@ -23,12 +23,12 @@
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/yourusername/KashmirBNBServer.git"
+        "url": "git+https://github.com/Flattr-io/kashmirBnB-server.git"
     },
     "bugs": {
-        "url": "https://github.com/yourusername/KashmirBNBServer/issues"
+        "url": "https://github.com/Flattr-io/kashmirBnB-server/issues"
     },
-    "homepage": "https://github.com/yourusername/KashmirBNBServer#readme",
+    "homepage": "https://github.com/Flattr-io/kashmirBnB-server#readme",
     "dependencies": {
         "@hyperflake/http-errors": "^1.0.0",
         "@supabase/supabase-js": "^2.57.4",
