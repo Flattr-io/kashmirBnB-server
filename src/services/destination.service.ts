@@ -19,7 +19,7 @@ export class DestinationService {
     async getAll(): Promise<IDestination[]> {
         try {
             const { data, error } = await this.db
-                .from('destinations')
+                .from('vw_destinations_public')
                 .select(
                     `
                     id,
@@ -41,7 +41,7 @@ export class DestinationService {
                 // If PostGIS functions are not available, try without them
                 if (error.message.includes('ST_AsGeoJSON') || error.message.includes('relationship')) {
                     const { data: simpleData, error: simpleError } = await this.db
-                        .from('destinations')
+                        .from('vw_destinations_public')
                         .select(
                             `
                             id,
@@ -102,7 +102,7 @@ export class DestinationService {
      */
     async create(params: ICreateDestinationRequest): Promise<IDestination> {
         const { data, error } = await this.db
-            .from('destinations')
+            .from('vw_destinations_public')
             .insert([params])
             .select(
                 `
@@ -139,7 +139,7 @@ export class DestinationService {
         await this.getByIdOrThrowError({ destinationId });
 
         const { data, error } = await this.db
-            .from('destinations')
+            .from('vw_destinations_public')
             .update(payload)
             .eq('id', destinationId)
             .select(
@@ -194,7 +194,7 @@ export class DestinationService {
         const { destinationId } = params;
 
         const { data, error } = await this.db
-            .from('destinations')
+            .from('vw_destinations_public')
             .select(
                 `
                 id,
