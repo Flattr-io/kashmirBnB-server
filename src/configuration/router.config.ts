@@ -10,6 +10,11 @@ import poiRatingRoutes from '../routes/poi-rating.routes';
 import poiWishlistRoutes from '../routes/poi.wishlist.routes';
 import { getDB } from './database.config';
 
+// Health check throttling: cache DB status to avoid frequent queries
+const HEALTH_CHECK_MIN_INTERVAL_MS: number = Number(process.env.HEALTH_CHECK_MIN_INTERVAL_MS || 60000);
+let lastHealthCheckAt = 0;
+let lastDatabaseStatus: { status: 'pass' | 'fail'; error?: string } | null = null;
+
 export const init = (app: Express) => {
 
     /**
@@ -156,25 +161,24 @@ export const init = (app: Express) => {
     app.get('/api/health', async (req, res) => {
         try {
             const startTime = Date.now();
-            
-            // Test database connectivity
-            const db = getDB();
-            const { data, error } = await db
-                .from('destinations')
-                .select('id')
-                .limit(1);
-            
-            if (error) {
-                return res.status(503).json({
-                    status: 'unhealthy',
-                    timestamp: new Date().toISOString(),
-                    service: 'revam-bnb-api',
-                    checks: {
-                        database: { status: 'fail', error: error.message },
-                        uptime: process.uptime(),
-                        responseTime: Date.now() - startTime
-                    }
-                });
+
+            // Decide whether to perform a fresh DB check or reuse cached result
+            const now = Date.now();
+            const shouldCheckDb = now - lastHealthCheckAt >= HEALTH_CHECK_MIN_INTERVAL_MS || !lastDatabaseStatus;
+
+            if (shouldCheckDb) {
+                const db = getDB();
+                const { error } = await db
+                    .from('destinations')
+                    .select('id')
+                    .limit(1);
+
+                if (error) {
+                    lastDatabaseStatus = { status: 'fail', error: error.message };
+                } else {
+                    lastDatabaseStatus = { status: 'pass' };
+                }
+                lastHealthCheckAt = now;
             }
 
             res.status(200).json({
@@ -183,7 +187,7 @@ export const init = (app: Express) => {
                 service: 'revam-bnb-api',
                 version: process.env.npm_package_version || '1.0.0',
                 checks: {
-                    database: { status: 'pass' },
+                    database: lastDatabaseStatus || { status: 'pass' },
                     uptime: process.uptime(),
                     responseTime: Date.now() - startTime,
                     memory: {
