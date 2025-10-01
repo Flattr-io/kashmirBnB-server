@@ -12,9 +12,12 @@ export class PoiService {
      * @desc Get all POIs
      */
     async getAll(): Promise<IPOI[]> {
-        const { data, error } = await this.db.from('pois').select('*');
+        // Join category table and embed as object; also return denormalized category_name
+        const { data, error } = await this.db
+            .from('pois')
+            .select('*, category:poi_categories!inner(id, name, icon, color, description, created_at)');
         if (error) throw new Error(error.message);
-        return data as IPOI[];
+        return data as unknown as IPOI[];
     }
 
     /**
@@ -106,7 +109,7 @@ export class PoiService {
 
         const { data, error } = await this.db
             .from('pois')
-            .select('*')
+            .select('*, category:poi_categories!inner(id, name, icon, color, description, created_at)')
             .eq('destination_id', destinationId)
             .eq('is_active', true)
             .lte('min_zoom', zoom)
@@ -116,7 +119,7 @@ export class PoiService {
             .limit(limit);
 
         if (error) throw new Error(error.message);
-        return data as IPOI[];
+        return data as unknown as IPOI[];
     }
 
     // ---------------------
@@ -124,11 +127,15 @@ export class PoiService {
     // ---------------------
     private async getByIdOrThrowError(params: { poiId: string }): Promise<IPOI> {
         const { poiId } = params;
-        const { data, error } = await this.db.from('pois').select('*').eq('id', poiId).maybeSingle();
+        const { data, error } = await this.db
+            .from('pois')
+            .select('*, category:poi_categories!inner(id, name, icon, color, description, created_at)')
+            .eq('id', poiId)
+            .maybeSingle();
 
         if (error) throw new Error(error.message);
         if (!data) throw new NotFoundError(`POI with id ${poiId} not found.`);
 
-        return data as IPOI;
+        return data as unknown as IPOI;
     }
 }

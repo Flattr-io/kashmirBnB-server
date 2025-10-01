@@ -407,6 +407,11 @@ const options: swaggerJSDoc.Options = {
                             description: 'ID of the POI category',
                             example: '123e4567-e89b-12d3-a456-426614174000',
                         },
+                        category_name: {
+                            type: 'string',
+                            description: 'Denormalized category name corresponding to category_id',
+                            example: 'Gardens & Parks',
+                        },
                         category: {
                             $ref: '#/components/schemas/POICategory',
                         },

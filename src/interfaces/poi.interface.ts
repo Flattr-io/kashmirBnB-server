@@ -10,6 +10,7 @@ export interface IPOI {
     name: string;
     description?: string;
     category_id: string;
+    category_name: string; // denormalized for quick filtering/display
     category?: IPOICategory;
     latitude: number;
     longitude: number;
