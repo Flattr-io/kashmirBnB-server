@@ -9,6 +9,8 @@ import { init as initRouter } from '../configuration/router.config';
 import { errorHandler } from '../middlewares/error-handler.middleware';
 import { setupSwagger } from './swagger';
 import { WeatherScheduler } from '../utils/weather.scheduler';
+import { createServer, Server as HttpServer } from 'http';
+import { SocketBootstrap } from './socket.bootstrap';
 
 dotenv.config();
 
@@ -22,6 +24,8 @@ export class AppBootstrap {
     };
 
     private scheduler?: WeatherScheduler;
+    private httpServer?: HttpServer;
+    private socket?: SocketBootstrap;
 
     constructor() {
         this.app = express();
@@ -70,7 +74,9 @@ export class AppBootstrap {
 
     listen() {
         const port = Number(process.env.PORT) || 3000;
-        this.app.listen(port, '0.0.0.0', () => {
+        this.httpServer = createServer(this.app);
+        this.socket = new SocketBootstrap(this.httpServer, this.corsOptions.origin);
+        this.httpServer.listen(port, '0.0.0.0', () => {
             console.log(`🚀 App listening on port ${port}...`);
         });
     }

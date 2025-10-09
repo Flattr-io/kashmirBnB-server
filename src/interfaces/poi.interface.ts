@@ -23,7 +23,6 @@ export interface IPOI {
     min_zoom: number;
     max_zoom: number;
     priority: number;
-
     created_by: string;
     created_at: string;
     updated_at: string;

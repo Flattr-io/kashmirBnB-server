@@ -43,6 +43,28 @@ const options: swaggerJSDoc.Options = {
                 },
             },
             schemas: {
+                ChatMessage: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        text: { type: 'string' },
+                        author: { type: 'string' },
+                        timestamp: { type: 'string', format: 'date-time' },
+                        isRigged: { type: 'boolean' },
+                    },
+                    required: ['id', 'text', 'author', 'timestamp', 'isRigged'],
+                },
+                ChatResponse: {
+                    type: 'object',
+                    properties: {
+                        userState: { type: 'string', enum: ['UNAUTHENTICATED', 'PHONE_VERIFIED', 'KYC_VERIFIED'] },
+                        canSend: { type: 'boolean' },
+                        messagesAvailable: { type: 'number' },
+                        messages: { type: 'array', items: { $ref: '#/components/schemas/ChatMessage' } },
+                        error: { type: 'string', nullable: true },
+                    },
+                    required: ['userState', 'canSend', 'messagesAvailable', 'messages'],
+                },
                 // User Schemas
                 User: {
                     type: 'object',
@@ -1148,6 +1170,10 @@ const options: swaggerJSDoc.Options = {
             },
         },
         tags: [
+            {
+                name: 'Chat',
+                description: 'Global chat endpoints',
+            },
             {
                 name: 'Auth',
                 description: 'Authentication and user management endpoints',
