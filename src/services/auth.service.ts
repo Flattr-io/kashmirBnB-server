@@ -18,7 +18,7 @@ export class AuthService {
         try {
             const { data, error } = await this.db.auth.signUp({
                 email,
-                password
+                password,
             });
 
             if (error) {
@@ -38,7 +38,6 @@ export class AuthService {
             // We'll handle the database operations separately
             console.log('Signup completed successfully');
             return data;
-
         } catch (error) {
             console.error('Signup error:', error);
             throw error;
@@ -69,9 +68,16 @@ export class AuthService {
      * @desc Verify Supabase token for protected endpoints
      */
     async verifyToken(token: string) {
-        const { data, error } = await this.db.auth.getUser(token);
-        if (error || !data.user) throw new UnauthorizedError('Invalid token');
-        return data.user;
+        try {
+            const { data, error } = await this.db.auth.getUser(token);
+            if (error || !data?.user) {
+                return null;
+            }
+            return data.user;
+        } catch (err: any) {
+            console.error('Token verification failed:', err);
+            return null;
+        }
     }
 
     /**
@@ -82,4 +88,3 @@ export class AuthService {
         if (error) throw new BadRequestError(error.message);
     }
 }
-

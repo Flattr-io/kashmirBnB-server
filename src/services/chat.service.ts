@@ -27,6 +27,13 @@ export class ChatService {
 
     async getChatMessages(userId?: string): Promise<ChatResponseDTO> {
         const state = await this.getUserChatState(userId);
+        // Example result:
+        // {
+        //   userState: 'PHONE_VERIFIED',
+        //   canSend: false,
+        //   messagesAvailable: 100,
+        //   variationId: 2
+        // }
 
         // Fetch rigged (by variation) + real messages together, newest first
         const limit = state.messagesAvailable;
@@ -126,11 +133,7 @@ export class ChatService {
     }
 
     private async ensureUserHasUsername(userId: string): Promise<string> {
-        const { data: profile } = await this.db
-            .from('user_profiles')
-            .select('chat_username')
-            .eq('id', userId)
-            .single();
+        const { data: profile } = await this.db.from('user_profiles').select('chat_username').eq('id', userId).single();
 
         if (profile?.chat_username) return profile.chat_username;
 
@@ -153,5 +156,3 @@ export class ChatService {
         return username;
     }
 }
-
-
