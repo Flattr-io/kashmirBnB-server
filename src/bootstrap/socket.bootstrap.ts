@@ -7,7 +7,7 @@ import { AuthService } from '../services/auth.service';
 interface CachedUserState {
     canSend: boolean;
     userState: string;
-    username: string;
+    name: string;
     variationId: number;
 }
 
@@ -39,44 +39,52 @@ export class SocketBootstrap {
             console.log('A user connected', socket.id);
 
             // Extract Supabase access token (from client)
-            const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
+            const authHeader = socket.handshake.headers?.authorization;
+            const token =
+                socket.handshake.auth?.token ||
+                (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined);
             if (!token) {
-                // socket.emit('unauthorized', { error: 'Missing Supabase token' });
-                // await new Promise((resolve) => setTimeout(resolve, 1000));
+                socket.emit('unauthorized', { error: 'Missing Supabase token' });
                 socket.disconnect(true);
                 console.log('User disconnected because of missing Supabase token');
                 return;
             }
 
             // Verify token using Supabase backend SDK
-            const user = await authService.verifyToken(token);
-            if (!user) {
-                console.error('Invalid Supabase token:');
-                // socket.emit('unauthorized', { error: 'Invalid Supabase token' });
-                // await new Promise((resolve) => setTimeout(resolve, 1000));
+            try {
+                const user = await authService.verifyToken(token);
+                socket.data.userId = user.id;
+                socket.data.name = user.user_metadata.name;
+            } catch (error) {
+                console.error('Invalid Supabase token:', error);
+                socket.emit('unauthorized', { error: 'Invalid token' });
                 socket.disconnect(true);
                 return;
             }
 
-            const userId = user.id;
-            socket.data.userId = userId; 
+            const userId = socket.data.userId;
+            const name = socket.data.name;
 
             // Fetch and cache user chat state
             const state = await this.chatService.getUserChatState(userId);
-            // const username = await this.chatService.ensureUserHasUsername(userId);
-            //TODO: Instead of using chatService, use the decoded token to get the user state and username
+
+            if (!state.canSend || state.userState === 'UNAUTHENTICATED' || state.userState === 'PHONE_VERIFIED') {
+                console.log('User is not KYC verified');
+                socket.disconnect(true);
+                return;
+            }
 
             this.userStateCache.set(userId, {
                 canSend: state.canSend,
                 userState: state.userState,
-                username: 'Anonymous', //TODO: Fix this. Get username from decoded token
+                name: name, //TODO: Fix this. Get username from decoded token
                 variationId: state.variationId,
             });
 
             socket.join('global-chat'); // Put the user in the global chat room
             console.log(`User ${userId} joined global chat`);
 
-            socket.on('send-message', (data: { text: string; username?: string }) => {
+            socket.on('send-message', (data: { text: string }) => {
                 if (!data?.text?.trim()) return;
 
                 const cached = this.userStateCache.get(userId);
@@ -89,7 +97,7 @@ export class SocketBootstrap {
                 console.log('Sending message to global chat', data);
                 socket.to('global-chat').emit('receive-message', {
                     text: data.text,
-                    username: data.username || 'Anonymous', //TODO: Fix this
+                    username: name, //TODO: Fix this with username
                     timestamp: new Date().toISOString(),
                     socketId: socket.id,
                 });

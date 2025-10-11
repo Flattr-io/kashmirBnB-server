@@ -68,16 +68,9 @@ export class AuthService {
      * @desc Verify Supabase token for protected endpoints
      */
     async verifyToken(token: string) {
-        try {
-            const { data, error } = await this.db.auth.getUser(token);
-            if (error || !data?.user) {
-                return null;
-            }
-            return data.user;
-        } catch (err: any) {
-            console.error('Token verification failed:', err);
-            return null;
-        }
+        const { data, error } = await this.db.auth.getUser(token);
+        if (error || !data.user) throw new UnauthorizedError('Invalid token');
+        return data.user;
     }
 
     /**
