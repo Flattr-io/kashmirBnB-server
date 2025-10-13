@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import createError from 'http-errors';
 import { AuthService } from '../services/auth.service';
 
 const authService = new AuthService();
@@ -8,7 +9,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
         const authHeader = req.headers.authorization;
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ message: 'Unauthorized' });
+            return next(createError(401, 'Unauthorized'));
         }
 
         const token = authHeader.split(' ')[1];
@@ -19,6 +20,6 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
 
         next();
     } catch (err: any) {
-        res.status(401).json({ message: err.message || 'Unauthorized' });
+        return next(createError(401, err?.message || 'Unauthorized'));
     }
 }

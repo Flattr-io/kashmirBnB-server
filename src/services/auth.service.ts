@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { getDB } from '../configuration/database.config';
 import { BadRequestError, UnauthorizedError } from '@hyperflake/http-errors';
+import { ChatService } from './chat.service';
 
 export class AuthService {
     private get db(): SupabaseClient {
@@ -10,15 +11,23 @@ export class AuthService {
     /**
      * @desc Sign up a new user (Supabase Auth handles password hashing)
      */
-    async signUp(params: { email: string; password: string; name: string; phone: string }) {
-        const { email, password, name, phone } = params;
+    async signUp(params: { email: string; password: string; name?: string; fullName?: string; phone?: string }) {
+        const { email, password } = params;
+        const fullName = (params.fullName || params.name || '').trim();
+        const phone = (params.phone || '').trim();
 
         console.log('Attempting signup for:', email);
 
         try {
             const { data, error } = await this.db.auth.signUp({
                 email,
-                password
+                password,
+                options: {
+                    data: {
+                        full_name: fullName || undefined,
+                        phone: phone || undefined
+                    }
+                }
             });
 
             if (error) {
@@ -34,8 +43,22 @@ export class AuthService {
 
             console.log('Auth signup successful, user ID:', data.user?.id);
 
-            // For now, just return the auth data without custom database operations
-            // We'll handle the database operations separately
+            const userId = data.user?.id;
+            if (userId) {
+                // 1) Upsert public.users with phone/email (id is FK to auth.users)
+                await this.db.from('users').upsert({ id: userId, phone: phone || null, email }).select('id');
+
+                // 2) Upsert user_profiles with defaults { full_name, phone, email }
+                await this.db
+                    .from('user_profiles')
+                    .upsert({ id: userId, full_name: fullName || 'User', phone: phone || null, email })
+                    .select('id');
+
+                // 3) Ensure chat_username exists
+                const chatService = new ChatService();
+                await chatService.ensureUserHasUsername(userId);
+            }
+
             console.log('Signup completed successfully');
             return data;
 
@@ -51,14 +74,14 @@ export class AuthService {
     async login(params: { email: string; password: string }) {
         const { email, password } = params;
 
-        console.log('Attempting login for:', email, password);
+        console.log('Attempting login for:', email);
 
         const { data, error } = await this.db.auth.signInWithPassword({
             email,
             password,
         });
 
-        console.log('Login response:', data, error);
+        
 
         if (error) throw new UnauthorizedError(error.message);
 

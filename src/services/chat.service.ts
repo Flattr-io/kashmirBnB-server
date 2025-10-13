@@ -125,7 +125,7 @@ export class ChatService {
         return Math.max(1, Math.floor(Math.random() * max) + 1);
     }
 
-    private async ensureUserHasUsername(userId: string): Promise<string> {
+    async ensureUserHasUsername(userId: string): Promise<string> {
         const { data: profile } = await this.db
             .from('user_profiles')
             .select('chat_username')

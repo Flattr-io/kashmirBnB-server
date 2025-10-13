@@ -1,6 +1,8 @@
-import { Request, Response, Router } from 'express';
+import { Request, Response, NextFunction, Router } from 'express';
+import createError from 'http-errors';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { UserService } from '../services/user.service';
+import { requireRoles, requireSelfOrRoles } from '../middlewares/authorization.middleware';
 
 const router = Router();
 const userService = new UserService();
@@ -21,7 +23,7 @@ const userService = new UserService();
  *       401:
  *         description: Unauthorized
  */
-router.get('/', [authMiddleware], async (req: Request, res: Response) => {
+router.get('/', [authMiddleware, requireRoles('admin')], async (req: Request, res: Response) => {
     const users = await userService.getAllUsers();
     res.send(users);
 });
@@ -58,10 +60,8 @@ router.get('/', [authMiddleware], async (req: Request, res: Response) => {
  *       401:
  *         description: Unauthorized
  */
-router.post('/', [authMiddleware], async (req: Request, res: Response) => {
-    const { name, email, password } = req.body;
-    const user = await userService.create({ name, email, password });
-    res.send(user);
+router.post('/', [authMiddleware], async (req: Request, res: Response, next: NextFunction) => {
+    return next(createError(405, 'Method Not Allowed'));
 });
 
 /**
@@ -89,7 +89,7 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  *       404:
  *         description: User not found
  */
-router.get('/:userId', [authMiddleware], async (req: Request, res: Response) => {
+router.get('/:userId', [authMiddleware, requireSelfOrRoles('userId', 'admin')], async (req: Request, res: Response) => {
     const user = await userService.getById({ userId: req.params.userId });
     res.send(user);
 });
@@ -135,7 +135,7 @@ router.get('/:userId', [authMiddleware], async (req: Request, res: Response) => 
  *       404:
  *         description: User not found
  */
-router.patch('/:userId', [authMiddleware], async (req: Request, res: Response) => {
+router.patch('/:userId', [authMiddleware, requireSelfOrRoles('userId', 'admin')], async (req: Request, res: Response) => {
     const user = await userService.update({ userId: req.params.userId, ...req.body });
     res.send(user);
 });
@@ -165,7 +165,7 @@ router.patch('/:userId', [authMiddleware], async (req: Request, res: Response) =
  *       404:
  *         description: User not found
  */
-router.delete('/:userId', [authMiddleware], async (req: Request, res: Response) => {
+router.delete('/:userId', [authMiddleware, requireSelfOrRoles('userId', 'admin')], async (req: Request, res: Response) => {
     const result = await userService.delete({ userId: req.params.userId });
     res.send(result);
 });
