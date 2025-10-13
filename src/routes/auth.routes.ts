@@ -114,9 +114,11 @@ const authService = new AuthService();
  *                   timestamp: "2024-01-15T10:30:00Z"
  */
 router.post('/signup', async (req: Request, res: Response) => {
-    const { email, password, name, phone} = req.body;
-    const user = await authService.signUp({ email, password, name, phone });
-    res.send(user);
+    const { email, password } = req.body;
+    const name = (req.body?.fullName ?? req.body?.name) as string | undefined;
+    const phone = (req.body?.phone ?? undefined) as string | undefined;
+    const result = await authService.signUp({ email, password, name, fullName: name, phone });
+    res.send(result);
 });
 
 /**
