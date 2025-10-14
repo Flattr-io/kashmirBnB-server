@@ -72,18 +72,18 @@ export class ChatService {
         };
     }
 
-    async sendMessage(userId: string, text: string): Promise<ChatResponseDTO | { error: string }> {
-        const state = await this.getUserChatState(userId);
-        if (!state.canSend) {
-            return { error: 'Not allowed' };
-        }
+    async sendMessage(userId: string, name: string, text: string): Promise<ChatResponseDTO | { error: string }> {
+        // const state = await this.getUserChatState(userId);
+        // if (!state.canSend) {
+        //     return { error: 'Not allowed' };
+        // }
 
         // Ensure user has a chat username
-        const author = await this.ensureUserHasUsername(userId);
+        // const author = await this.ensureUserHasUsername(userId);
 
         const { error } = await this.db
             .from('chat_messages')
-            .insert([{ text, author_username: author, user_id: userId, is_rigged: false }]);
+            .insert([{ text, author_username: name, user_id: userId, is_rigged: false }]);
 
         if (error) {
             return { error: 'Data fetch failed' };
@@ -133,11 +133,7 @@ export class ChatService {
     }
 
     async ensureUserHasUsername(userId: string): Promise<string> {
-        const { data: profile } = await this.db
-            .from('user_profiles')
-            .select('chat_username')
-            .eq('id', userId)
-            .single();
+        const { data: profile } = await this.db.from('user_profiles').select('chat_username').eq('id', userId).single();
 
         if (profile?.chat_username) return profile.chat_username;
 
