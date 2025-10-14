@@ -1,6 +1,5 @@
 import { Request, Response, Router } from 'express';
 import { optionalAuthMiddleware } from '../middlewares/optional-auth.middleware';
-import { authMiddleware } from '../middlewares/auth.middleware';
 import { ChatService } from '../services/chat.service';
 
 const router = Router();

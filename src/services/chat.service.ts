@@ -1,24 +1,9 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { getDB } from '../configuration/database.config';
 import { ChatConfigService } from './chat-config.service';
-
-export type UserState = 'UNAUTHENTICATED' | 'PHONE_VERIFIED' | 'KYC_VERIFIED';
-
-export interface ChatMessageDTO {
-    id: string;
-    text: string;
-    author: string;
-    timestamp: string;
-    isRigged: boolean;
-}
-
-export interface ChatResponseDTO {
-    userState: UserState;
-    canSend: boolean;
-    messagesAvailable: number;
-    messages: ChatMessageDTO[];
-    error: string | null;
-}
+import { ChatResponseDTO } from '../interfaces/chat.interface';
+import { ChatMessageDTO } from '../interfaces/chat.interface';
+import { UserState } from '../interfaces/chat.interface';
 
 export class ChatService {
     private get db(): SupabaseClient {
@@ -72,7 +57,7 @@ export class ChatService {
         };
     }
 
-    async sendMessage(userId: string, name: string, text: string): Promise<ChatResponseDTO | { error: string }> {
+    async saveMessage(userId: string, name: string, text: string): Promise<{ success: boolean; error?: string }> {
         // const state = await this.getUserChatState(userId);
         // if (!state.canSend) {
         //     return { error: 'Not allowed' };
@@ -81,16 +66,20 @@ export class ChatService {
         // Ensure user has a chat username
         // const author = await this.ensureUserHasUsername(userId);
 
-        const { error } = await this.db
-            .from('chat_messages')
-            .insert([{ text, author_username: name, user_id: userId, is_rigged: false }]);
+        try {
+            const { error } = await this.db
+                .from('chat_messages')
+                .insert([{ text, author_username: name, user_id: userId, is_rigged: false }]);
 
-        if (error) {
-            return { error: 'Data fetch failed' };
+            if (error) {
+                return { success: false, error: 'Failed to save message' };
+            }
+
+            return { success: true };
+        } catch (err) {
+            console.error('Error saving message:', err);
+            return { success: false, error: 'Unexpected error occurred' };
         }
-
-        // Return updated chat view for the user
-        return this.getChatMessages(userId);
     }
 
     async getUserChatState(userId?: string): Promise<{
