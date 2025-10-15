@@ -12,29 +12,36 @@ export class ChatService {
 
     async getChatMessages(userId?: string): Promise<ChatResponseDTO> {
         const state = await this.getUserChatState(userId);
-        // Example result:
-        // {
-        //   userState: 'PHONE_VERIFIED',
-        //   canSend: false,
-        //   messagesAvailable: 100,
-        //   variationId: 2
-        // }
+        console.log('state', state);
 
-        // Fetch rigged (by variation) + real messages together, newest first
-        const limit = state.messagesAvailable;
-        const variationId = state.variationId;
-        const { data, error } = await this.db
-            .from('chat_messages')
-            .select('*')
-            .or(`is_rigged.eq.false,and(is_rigged.eq.true,variation_id.eq.${variationId})`)
-            .order('created_at', { ascending: false })
-            .limit(limit);
+        const { userState, canSend, messagesAvailable, variationId } = state;
+
+        let query = this.db.from('chat_messages').select('*');
+        let limit: number | null = null;
+
+        if (userState === 'KYC_VERIFIED') {
+            // KYC users get everything, no limit
+            query = query.order('created_at', { ascending: false });
+        } else {
+            // Unauthenticated or Phone Verified users → only rigged messages
+            query = query
+                .eq('is_rigged', true)
+                .eq('variation_id', variationId)
+                .order('created_at', { ascending: false });
+            limit = messagesAvailable;
+        }
+
+        if (limit) {
+            query = query.limit(limit);
+        }
+
+        const { data, error } = await query;
 
         if (error) {
             return {
-                userState: state.userState,
-                canSend: state.canSend,
-                messagesAvailable: state.messagesAvailable,
+                userState,
+                canSend,
+                messagesAvailable,
                 messages: [],
                 error: 'Data fetch failed',
             };
@@ -49,9 +56,9 @@ export class ChatService {
         }));
 
         return {
-            userState: state.userState,
-            canSend: state.canSend,
-            messagesAvailable: state.messagesAvailable,
+            userState,
+            canSend,
+            messagesAvailable,
             messages,
             error: null,
         };
@@ -90,6 +97,7 @@ export class ChatService {
     }> {
         const config = ChatConfigService.getConfig();
 
+        // Unauthenticated user
         if (!userId) {
             return {
                 userState: 'UNAUTHENTICATED',
@@ -111,7 +119,11 @@ export class ChatService {
         return {
             userState: isKycVerified ? 'KYC_VERIFIED' : isPhoneVerified ? 'PHONE_VERIFIED' : 'UNAUTHENTICATED',
             canSend: !!isKycVerified,
-            messagesAvailable: isPhoneVerified ? config.phoneVerifiedLimit : config.unauthenticatedLimit,
+            messagesAvailable: isKycVerified
+                ? Infinity // not used, but could be ignored
+                : isPhoneVerified
+                  ? config.phoneVerifiedLimit
+                  : config.unauthenticatedLimit,
             variationId: profile?.chat_variation_id || 1,
         };
     }
