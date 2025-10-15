@@ -61,7 +61,6 @@ export class AuthService {
 
             console.log('Signup completed successfully');
             return data;
-
         } catch (error) {
             console.error('Signup error:', error);
             throw error;
@@ -105,4 +104,3 @@ export class AuthService {
         if (error) throw new BadRequestError(error.message);
     }
 }
-

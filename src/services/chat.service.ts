@@ -1,24 +1,9 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { getDB } from '../configuration/database.config';
 import { ChatConfigService } from './chat-config.service';
-
-export type UserState = 'UNAUTHENTICATED' | 'PHONE_VERIFIED' | 'KYC_VERIFIED';
-
-export interface ChatMessageDTO {
-    id: string;
-    text: string;
-    author: string;
-    timestamp: string;
-    isRigged: boolean;
-}
-
-export interface ChatResponseDTO {
-    userState: UserState;
-    canSend: boolean;
-    messagesAvailable: number;
-    messages: ChatMessageDTO[];
-    error: string | null;
-}
+import { ChatResponseDTO } from '../interfaces/chat.interface';
+import { ChatMessageDTO } from '../interfaces/chat.interface';
+import { UserState } from '../interfaces/chat.interface';
 
 export class ChatService {
     private get db(): SupabaseClient {
@@ -27,22 +12,36 @@ export class ChatService {
 
     async getChatMessages(userId?: string): Promise<ChatResponseDTO> {
         const state = await this.getUserChatState(userId);
+        console.log('state', state);
 
-        // Fetch rigged (by variation) + real messages together, newest first
-        const limit = state.messagesAvailable;
-        const variationId = state.variationId;
-        const { data, error } = await this.db
-            .from('chat_messages')
-            .select('*')
-            .or(`is_rigged.eq.false,and(is_rigged.eq.true,variation_id.eq.${variationId})`)
-            .order('created_at', { ascending: false })
-            .limit(limit);
+        const { userState, canSend, messagesAvailable, variationId } = state;
+
+        let query = this.db.from('chat_messages').select('*');
+        let limit: number | null = null;
+
+        if (userState === 'KYC_VERIFIED') {
+            // KYC users get everything, no limit
+            query = query.order('created_at', { ascending: false });
+        } else {
+            // Unauthenticated or Phone Verified users → only rigged messages
+            query = query
+                .eq('is_rigged', true)
+                .eq('variation_id', variationId)
+                .order('created_at', { ascending: false });
+            limit = messagesAvailable;
+        }
+
+        if (limit) {
+            query = query.limit(limit);
+        }
+
+        const { data, error } = await query;
 
         if (error) {
             return {
-                userState: state.userState,
-                canSend: state.canSend,
-                messagesAvailable: state.messagesAvailable,
+                userState,
+                canSend,
+                messagesAvailable,
                 messages: [],
                 error: 'Data fetch failed',
             };
@@ -57,33 +56,37 @@ export class ChatService {
         }));
 
         return {
-            userState: state.userState,
-            canSend: state.canSend,
-            messagesAvailable: state.messagesAvailable,
+            userState,
+            canSend,
+            messagesAvailable,
             messages,
             error: null,
         };
     }
 
-    async sendMessage(userId: string, text: string): Promise<ChatResponseDTO | { error: string }> {
-        const state = await this.getUserChatState(userId);
-        if (!state.canSend) {
-            return { error: 'Not allowed' };
-        }
+    async saveMessage(userId: string, name: string, text: string): Promise<{ success: boolean; error?: string }> {
+        // const state = await this.getUserChatState(userId);
+        // if (!state.canSend) {
+        //     return { error: 'Not allowed' };
+        // }
 
         // Ensure user has a chat username
-        const author = await this.ensureUserHasUsername(userId);
+        // const author = await this.ensureUserHasUsername(userId);
 
-        const { error } = await this.db
-            .from('chat_messages')
-            .insert([{ text, author_username: author, user_id: userId, is_rigged: false }]);
+        try {
+            const { error } = await this.db
+                .from('chat_messages')
+                .insert([{ text, author_username: name, user_id: userId, is_rigged: false }]);
 
-        if (error) {
-            return { error: 'Data fetch failed' };
+            if (error) {
+                return { success: false, error: 'Failed to save message' };
+            }
+
+            return { success: true };
+        } catch (err) {
+            console.error('Error saving message:', err);
+            return { success: false, error: 'Unexpected error occurred' };
         }
-
-        // Return updated chat view for the user
-        return this.getChatMessages(userId);
     }
 
     async getUserChatState(userId?: string): Promise<{
@@ -94,6 +97,7 @@ export class ChatService {
     }> {
         const config = ChatConfigService.getConfig();
 
+        // Unauthenticated user
         if (!userId) {
             return {
                 userState: 'UNAUTHENTICATED',
@@ -115,7 +119,11 @@ export class ChatService {
         return {
             userState: isKycVerified ? 'KYC_VERIFIED' : isPhoneVerified ? 'PHONE_VERIFIED' : 'UNAUTHENTICATED',
             canSend: !!isKycVerified,
-            messagesAvailable: isPhoneVerified ? config.phoneVerifiedLimit : config.unauthenticatedLimit,
+            messagesAvailable: isKycVerified
+                ? Infinity // not used, but could be ignored
+                : isPhoneVerified
+                  ? config.phoneVerifiedLimit
+                  : config.unauthenticatedLimit,
             variationId: profile?.chat_variation_id || 1,
         };
     }
@@ -126,11 +134,7 @@ export class ChatService {
     }
 
     async ensureUserHasUsername(userId: string): Promise<string> {
-        const { data: profile } = await this.db
-            .from('user_profiles')
-            .select('chat_username')
-            .eq('id', userId)
-            .single();
+        const { data: profile } = await this.db.from('user_profiles').select('chat_username').eq('id', userId).single();
 
         if (profile?.chat_username) return profile.chat_username;
 
@@ -153,5 +157,3 @@ export class ChatService {
         return username;
     }
 }
-
-
