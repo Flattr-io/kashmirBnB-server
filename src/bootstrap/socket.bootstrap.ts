@@ -1,4 +1,4 @@
-import { Server as SocketIOServer } from 'socket.io';
+import { Socket, Server as SocketIOServer } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import { ChatService } from '../services/chat.service';
 import { AuthService } from '../services/auth.service';
@@ -64,14 +64,14 @@ export class SocketBootstrap {
         });
     }
 
-    private extractToken(socket: any): string | undefined {
+    private extractToken(socket: Socket): string | undefined {
         const authHeader = socket.handshake.headers?.authorization;
         return (
             socket.handshake.auth?.token || (authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined)
         );
     }
 
-    private async verifyUser(socket: any, token: string) {
+    private async verifyUser(socket: Socket, token: string) {
         try {
             const user = await this.authService.verifyToken(token);
             socket.data.userId = user.id;
@@ -84,7 +84,7 @@ export class SocketBootstrap {
         }
     }
 
-    private async fetchAndCacheUserState(socket: any, userId: string, fullName: string) {
+    private async fetchAndCacheUserState(socket: Socket, userId: string, fullName: string) {
         try {
             const state = await this.chatService.getUserChatState(userId);
 
@@ -136,7 +136,7 @@ export class SocketBootstrap {
         return false; // Rate limit exceeded
     }
 
-    private registerChatHandlers(socket: any, userId: string, fullName: string) {
+    private registerChatHandlers(socket: Socket, userId: string, fullName: string) {
         socket.on('send-message', async ({ text }: { text: string }) => {
             if (!text?.trim()) return;
 
@@ -146,36 +146,49 @@ export class SocketBootstrap {
                 return;
             }
 
-            // Check rate limit
-            const allowed = this.checkRateLimit(userId);
-            if (!allowed) {
+            if (!this.checkRateLimit(userId)) {
                 console.log('Rate limit exceeded');
                 socket.emit('error-message', {
-                    error: `You are sending messages too quickly. Please wait a few seconds.`,
+                    error: 'You are sending messages too quickly. Please wait a few seconds.',
                 });
                 return;
             }
 
+            const timestamp = new Date().toISOString();
             const message = {
                 text,
-                username: fullName, // TODO: Replace with username once available
-                timestamp: new Date().toISOString(),
+                username: fullName, // TODO: Replace with username when available
+                timestamp,
                 socketId: socket.id,
             };
 
-            // Broadcast to all except sender
-            socket.to('global-chat').emit('receive-message', message);
-
-            // Save message in the background
             try {
-                await this.chatService.saveMessage(userId, fullName, text);
+                await this.saveMessageWithRetry(userId, fullName, text);
+                socket.to('global-chat').emit('receive-message', message);
+                socket.emit('message-sent', message); // optional
             } catch (err) {
                 console.error('Failed to save message:', err);
+                socket.emit('error-message', { error: 'Failed to save your message.' });
             }
         });
     }
 
-    private disconnectWithError(socket: any, message: string) {
+    private async saveMessageWithRetry(userId: string, fullName: string, text: string, retries = 3) {
+        for (let attempt = 1; attempt <= retries; attempt++) {
+            try {
+                const { error } = await this.chatService.saveMessage(userId, fullName, text);
+                if (error) throw error;
+                return; // success
+            } catch (err: any) {
+                console.warn(`[Attempt ${attempt}/${retries}] Save failed:`, err.message);
+                if (attempt === retries) throw err; // give up after max retries
+                await new Promise((res) => setTimeout(res, 500 * attempt)); // backoff delay
+            }
+        }
+        throw new Error('Failed to save message after retries');
+    }
+
+    private disconnectWithError(socket: Socket, message: string) {
         socket.emit('unauthorized', { error: message });
         socket.disconnect(true);
         console.log(`Disconnected socket (${socket.id}): ${message}`);
