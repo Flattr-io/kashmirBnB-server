@@ -31,8 +31,8 @@ export class DestinationService {
                     updated_at,
                     center_lat,
                     center_lng,
-                    area_geojson:ST_AsGeoJSON(area),
-                    center_geojson:ST_AsGeoJSON(center)
+                    area_geojson,
+                    center_geojson
                 `
                 )
                 .returns<RowWithGeoJSON[]>();
@@ -115,8 +115,8 @@ export class DestinationService {
                 updated_at,
                 center_lat,
                 center_lng,
-                area_geojson:ST_AsGeoJSON(area),
-                center_geojson:ST_AsGeoJSON(center)
+                area_geojson,
+                center_geojson
             `
             )
             .returns<RowWithGeoJSON>()
@@ -153,8 +153,8 @@ export class DestinationService {
                 updated_at,
                 center_lat,
                 center_lng,
-                area_geojson:ST_AsGeoJSON(area),
-                center_geojson:ST_AsGeoJSON(center)
+                area_geojson,
+                center_geojson
             `
             )
             .returns<RowWithGeoJSON>()
@@ -206,8 +206,8 @@ export class DestinationService {
                 updated_at,
                 center_lat,
                 center_lng,
-                area_geojson:ST_AsGeoJSON(area),
-                center_geojson:ST_AsGeoJSON(center)
+                area_geojson,
+                center_geojson
             `
             )
             .eq('id', destinationId)
