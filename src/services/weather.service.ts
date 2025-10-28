@@ -92,6 +92,32 @@ export class WeatherService {
     }
 
     /**
+     * @desc Fetch weather for a specific date and upsert snapshot for that date
+     */
+    async fetchAndStoreForDestinationDate(destinationId: string, dateISO: string, isFinal: boolean = false): Promise<void> {
+        const { data: dest, error: destErr } = await this.db
+            .from('destinations')
+            .select('id, center_lat, center_lng')
+            .eq('id', destinationId)
+            .maybeSingle();
+
+        if (destErr) throw new BadRequestError(destErr.message);
+        if (!dest) throw new NotFoundError(`Destination not found: ${destinationId}`);
+
+        const lat = dest.center_lat as number;
+        const lon = dest.center_lng as number;
+        const forecast = await this.fetchFromProvider(lat, lon);
+
+        await this.upsertSnapshot({
+            destination_id: destinationId,
+            date: dateISO,
+            hourly: forecast.hourly,
+            daily: forecast.daily,
+            is_final: isFinal,
+        });
+    }
+
+    /**
      * @desc Get latest stored forecast for a destination (always DB, no API call)
      */
     async getStoredForecast(destinationId: string) {

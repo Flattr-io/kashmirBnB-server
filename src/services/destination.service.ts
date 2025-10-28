@@ -31,6 +31,7 @@ export class DestinationService {
                     updated_at,
                     center_lat,
                     center_lng,
+                    base_price,
                     area_geojson,
                     center_geojson
                 `
@@ -69,6 +70,7 @@ export class DestinationService {
                         center: null,
                         center_lat: row.center_lat,
                         center_lng: row.center_lng,
+                        base_price: Number(row.base_price ?? 0),
                         metadata: row.metadata ?? undefined,
                         created_by: row.created_by,
                         created_at: row.created_at,
@@ -115,6 +117,7 @@ export class DestinationService {
                 updated_at,
                 center_lat,
                 center_lng,
+                base_price,
                 area_geojson,
                 center_geojson
             `
@@ -153,6 +156,7 @@ export class DestinationService {
                 updated_at,
                 center_lat,
                 center_lng,
+                base_price,
                 area_geojson,
                 center_geojson
             `
@@ -206,6 +210,7 @@ export class DestinationService {
                 updated_at,
                 center_lat,
                 center_lng,
+                base_price,
                 area_geojson,
                 center_geojson
             `
@@ -238,6 +243,7 @@ export class DestinationService {
             center,
             center_lat: row.center_lat,
             center_lng: row.center_lng,
+            base_price: Number(row.base_price ?? 0),
             metadata: row.metadata ?? undefined,
             created_by: row.created_by,
             created_at: row.created_at,
