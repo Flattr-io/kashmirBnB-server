@@ -32,10 +32,14 @@ export class AmadeusService {
     async searchHotelsByGeocode(params: { latitude: number; longitude: number; radius?: number; radiusUnit?: 'KM' | 'MILE'; ratings?: string[]; hotelSource?: 'BEDBANK' | 'DIRECTCHAIN' | 'ALL'; }): Promise<HotelSuggestion[]> {
         const { latitude, longitude, radius = 5, radiusUnit = 'KM', ratings = [], hotelSource = 'ALL' } = params;
         try {
-            console.log('[Amadeus] byGeocode request params:', { latitude, longitude, radius, radiusUnit, ratings, hotelSource });
+            if (this.verbose) {
+                console.log('[Amadeus] byGeocode request params:', { latitude, longitude, radius, radiusUnit, ratings, hotelSource });
+                console.log('[Amadeus] Base URL:', this.baseUrl);
+            }
             const token = await this.auth.getAccessToken();
-            console.log('[Amadeus] Using token:', token ? 'TOKEN_PRESENT' : 'NO_TOKEN');
-            console.log('[Amadeus] Base URL:', this.baseUrl);
+            if (this.verbose) {
+                console.log('[Amadeus] Using token:', token ? 'TOKEN_PRESENT' : 'NO_TOKEN');
+            }
             const resp = await axios.get(`${this.baseUrl}/v1/reference-data/locations/hotels/by-geocode`, {
                 headers: { Authorization: `Bearer ${token}` },
                 params: {
@@ -47,8 +51,10 @@ export class AmadeusService {
                     hotelSource,
                 }
             });
-            console.log('[Amadeus] byGeocode raw response:', { status: resp.status, dataLength: resp.data?.data?.length || 0, meta: resp.data?.meta });
-            console.log('[Amadeus] byGeocode hotel data sample:', resp.data?.data?.[0]);
+            if (this.verbose) {
+                console.log('[Amadeus] byGeocode raw response:', { status: resp.status, dataLength: resp.data?.data?.length || 0, meta: resp.data?.meta });
+                console.log('[Amadeus] byGeocode hotel data sample:', resp.data?.data?.[0]);
+            }
             const hotels: HotelSuggestion[] = (resp.data?.data || []).map((h: any) => ({
                 name: h.name,
                 hotelId: h.hotelId,
@@ -111,7 +117,9 @@ export class AmadeusService {
                 headers: { Authorization: `Bearer ${token}` },
                 params: requestParams
             });
-            console.log('[Amadeus] hotel-offers raw response:', { status: resp.status, dataLength: resp.data?.data?.length || 0 });
+            if (this.verbose) {
+                console.log('[Amadeus] hotel-offers raw response:', { status: resp.status, dataLength: resp.data?.data?.length || 0 });
+            }
             const data = resp.data?.data || [];
             if (this.verbose) {
                 const sample = data.slice(0, 2).map((d: any) => ({ hotelId: d?.hotel?.hotelId, offerId: d?.offers?.[0]?.id, price: d?.offers?.[0]?.price?.total, currency: d?.offers?.[0]?.price?.currency }));

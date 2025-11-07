@@ -66,14 +66,14 @@ export class PackageService {
         for (let i = 0; i < ordered.length; i++) {
             const id = ordered[i];
             const dayDate = new Date(startDate);
-            dayDate.setDate(dayDate.getDate() + i);
+            dayDate.setUTCDate(dayDate.getUTCDate() + i);
             const dateISO = dayDate.toISOString().slice(0,10);
             const weather = await this.fetchWeatherForDate(weatherService, id, dateISO);
 
             // Hotel: check-in today, check-out next day, 2 per room
             const dest = idToDestination.get(id);
             const nextDate = new Date(dayDate);
-            nextDate.setDate(nextDate.getDate() + 1);
+            nextDate.setUTCDate(nextDate.getUTCDate() + 1);
             const roomQuantity = Math.ceil(people / 2);
             // Geocode-based hotels near destination center - try expanding radius if needed
             const lat = Number(dest?.center_lat);
@@ -182,10 +182,12 @@ export class PackageService {
             const transportCost = (pricingMap.get(id)?.transport_price || 0) * people;
             transportDailyTotal += transportCost;
 
+            const destinationName = dest?.name || 'Unknown Destination';
             days.push({
                 date: dayDate.toISOString(),
-                title: i === 0 ? 'Arrival & Check-in' : `Day ${i + 1} in ${idToDestination.get(id)?.name || 'Destination'}`,
+                title: i === 0 ? 'Arrival & Check-in' : `Day ${i + 1} in ${destinationName}`,
                 destinationId: id,
+                destinationName,
                 activities: actObjs,
                 activitiesCost,
                 hotel: selectedHotel || undefined,
@@ -225,7 +227,7 @@ export class PackageService {
     private resolveStartDate(start?: string): string {
         if (start) return new Date(start).toISOString();
         const d = new Date();
-        d.setDate(d.getDate() + 3);
+        d.setUTCDate(d.getUTCDate() + 3);
         return d.toISOString();
     }
 
@@ -304,22 +306,60 @@ export class PackageService {
 
     private async fetchWeatherForDate(weatherService: WeatherService, destinationId: string, dateISO: string) {
         try {
+            console.log(`[PackageService] Checking weather cache for ${dateISO}...`);
+            
+            // First, check what dates exist in the database for this destination
+            const { data: allSnapshots } = await this.db
+                .from('weather_snapshots')
+                .select('snapshot_date')
+                .eq('destination_id', destinationId)
+                .order('snapshot_date', { ascending: true });
+            
+            if (allSnapshots && allSnapshots.length > 0) {
+                const dates = allSnapshots.map((s: any) => s.snapshot_date).join(', ');
+                console.log(`[PackageService] Existing weather snapshots for destination: ${dates}`);
+            } else {
+                console.log(`[PackageService] No weather snapshots found in database for this destination`);
+            }
+            
             const { data, error } = await this.db
                 .from('weather_snapshots')
                 .select('mapped,snapshot_date,is_final')
                 .eq('destination_id', destinationId)
                 .eq('snapshot_date', dateISO)
                 .maybeSingle();
-            if (data) return data.mapped;
-            await weatherService.fetchAndStoreForDestinationDate(destinationId, dateISO, false);
-            const { data: after } = await this.db
+            
+            if (error) {
+                console.error(`[PackageService] Error fetching weather for ${dateISO}:`, error);
+            }
+            
+            if (data && (data as any).mapped?.daily?.length) {
+                console.log(`[PackageService] ✓ Weather data found in cache for ${dateISO}`);
+                return (data as any).mapped.daily[0] || null;
+            }
+            
+            // Populate efficiently using full forecast window (saves next ~5 days in one call)
+            console.log(`[PackageService] Weather data not found for ${dateISO}, fetching full forecast window...`);
+            await weatherService.fetchAndStoreForDestination(destinationId, false);
+            
+            const { data: after, error: afterError } = await this.db
                 .from('weather_snapshots')
                 .select('mapped')
                 .eq('destination_id', destinationId)
                 .eq('snapshot_date', dateISO)
                 .maybeSingle();
-            return after?.mapped || null;
-        } catch {
+            
+            if (afterError) {
+                console.error(`[PackageService] Error fetching weather after save for ${dateISO}:`, afterError);
+            } else if (after) {
+                console.log(`[PackageService] ✓ Weather data saved and retrieved for ${dateISO}`);
+            } else {
+                console.warn(`[PackageService] ⚠ Weather data not found after save for ${dateISO}`);
+            }
+            
+            return (after as any)?.mapped?.daily?.[0] || null;
+        } catch (err: any) {
+            console.error(`[PackageService] Error in fetchWeatherForDate for ${dateISO}:`, err.message, err);
             return null;
         }
     }
@@ -375,13 +415,15 @@ export class PackageService {
         for (let i = 0; i < ordered.length; i++) {
             const id = ordered[i];
             const date = new Date(start);
-            date.setDate(start.getDate() + i);
+            date.setUTCDate(start.getUTCDate() + i);
             const dest = idToDestination.get(id);
-            const title = i === 0 ? 'Arrival & Check-in' : `Day ${i + 1} in ${dest?.name || 'Destination'}`;
+            const destinationName = dest?.name || 'Unknown Destination';
+            const title = i === 0 ? 'Arrival & Check-in' : `Day ${i + 1} in ${destinationName}`;
             days.push({
                 date: date.toISOString(),
                 title,
                 destinationId: id,
+                destinationName,
                 activities: [...activities],
                 restaurantSuggestions: [],
             });

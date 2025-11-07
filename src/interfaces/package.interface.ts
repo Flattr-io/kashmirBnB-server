@@ -56,6 +56,7 @@ export interface DayPlan {
     date: string; // ISO
     title: string;
     destinationId: string;
+    destinationName: string;
     activities: ActivityWithPrice[];
     activitiesCost?: number;
     hotel?: HotelOption;
