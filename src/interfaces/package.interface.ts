@@ -8,7 +8,7 @@ export interface GeneratePackageRequest {
 }
 
 export type PriceBucket = 'budget_conscious' | 'optimal' | 'go_crazy';
-export type CabType = 'sedan' | 'suv' | 'tempo';
+export type CabType = 'hatchback' | 'sedan' | 'suv' | 'tempo';
 
 export interface PackageLeg {
     originId: string;
@@ -57,6 +57,7 @@ export interface DayPlan {
     title: string;
     destinationId: string;
     destinationName: string;
+    destinationAltitudeM?: number;
     activities: ActivityWithPrice[];
     activitiesCost?: number;
     hotel?: HotelOption;
@@ -65,6 +66,15 @@ export interface DayPlan {
     transportCost?: number;
     legTransportCost?: number;
     weather?: any;
+}
+
+export interface AvailableCab {
+    id?: string;
+    type: CabType;
+    make: string;
+    model: string;
+    pricePerDay?: number;
+    capacity: number;
 }
 
 export interface PackageGenerationResult {
@@ -84,5 +94,9 @@ export interface PackageGenerationResult {
     };
     optionalAttractions?: Array<{ poiId: string; name: string; price?: number }>;
     breakdown?: { accommodation: number; transport: number; activities: number; cab: number };
+    meta?: {
+        weatherNullDays?: Array<{ date: string; destinationId: string; reason: string }>;
+    };
+    availableCabs?: AvailableCab[];
 }
 

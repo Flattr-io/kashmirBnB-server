@@ -51,7 +51,7 @@ const options: swaggerJSDoc.Options = {
                         priceBucket: { type: 'string', enum: ['budget_conscious','optimal','go_crazy'] },
                         activities: { type: 'array', items: { type: 'string' } },
                         includeCommonAttractions: { type: 'boolean', description: 'Auto-add top purchasable attractions and return the rest as suggestions' },
-                        startDate: { type: 'string', format: 'date-time', description: 'Optional start date; defaults to now + 3 days' },
+                        startDate: { type: 'string', format: 'date-time', description: 'Optional start date (ISO, UTC). Pass to regenerate package for a different travel date. Defaults to now + 3 days. Must not be in the past.' },
                     },
                     required: ['destinationIds', 'people', 'priceBucket']
                 },
@@ -70,11 +70,25 @@ const options: swaggerJSDoc.Options = {
                         date: { type: 'string', format: 'date-time' },
                         title: { type: 'string' },
                         destinationId: { type: 'string', format: 'uuid' },
+                        destinationName: { type: 'string' },
+                        destinationAltitudeM: { type: 'number', nullable: true },
                         activities: { type: 'array', items: { type: 'string' } },
                         hotelSuggestion: { type: 'string', nullable: true },
                         restaurantSuggestions: { type: 'array', items: { type: 'string' }, nullable: true },
                     },
                     required: ['date', 'title', 'destinationId', 'activities']
+                },
+                AvailableCab: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid', nullable: true },
+                        type: { type: 'string', enum: ['hatchback','sedan','suv','tempo'] },
+                        make: { type: 'string' },
+                        model: { type: 'string' },
+                        pricePerDay: { type: 'number', nullable: true },
+                        capacity: { type: 'integer' }
+                    },
+                    required: ['type','make','model','capacity']
                 },
                 PackageGenerationResult: {
                     type: 'object',
@@ -97,6 +111,24 @@ const options: swaggerJSDoc.Options = {
                                 transport: { type: 'number' },
                                 activities: { type: 'number' },
                                 cab: { type: 'number' },
+                            }
+                        },
+                        availableCabs: { type: 'array', items: { $ref: '#/components/schemas/AvailableCab' } },
+                        meta: {
+                            type: 'object',
+                            properties: {
+                                weatherNullDays: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            date: { type: 'string', format: 'date' },
+                                            destinationId: { type: 'string', format: 'uuid' },
+                                            reason: { type: 'string', example: 'outside_5_day_forecast' }
+                                        }
+                                    },
+                                    description: 'Days where weather is null and the reason.'
+                                }
                             }
                         }
                     },
@@ -371,6 +403,12 @@ const options: swaggerJSDoc.Options = {
                             format: 'float',
                             description: 'Base price contribution for this destination',
                             example: 2500.00,
+                        },
+                        altitude_m: {
+                            type: 'number',
+                            format: 'float',
+                            description: 'Altitude in meters above sea level',
+                            example: 1585.0,
                         },
                         created_by: {
                             type: 'string',

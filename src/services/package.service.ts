@@ -3,8 +3,38 @@ import { getDB } from '../configuration/database.config';
 import { GeneratePackageRequest, PackageGenerationResult, CabType, DayPlan, PackageLeg, PriceBucket, ActivityWithPrice } from '../interfaces/package.interface';
 import { AmadeusService } from './amadeus.service';
 import { WeatherService } from './weather.service';
+import { addUtcDays, toYmdUtc } from '../utils/date.util';
+import { createHash } from 'crypto';
 
 export class PackageService {
+    private static readonly CACHE_TTL_MS = Number(process.env.PACKAGE_CACHE_TTL_MS || 15000);
+    private static responseCache = new Map<string, { expiry: number; promise: Promise<PackageGenerationResult> }>();
+
+    private static buildCacheKey(input: { destinations: string[]; startDate: string; people: number; bucket: PriceBucket }): string {
+        const payload = JSON.stringify({
+            d: input.destinations,
+            s: input.startDate,
+            p: input.people,
+            b: input.bucket,
+        });
+        return createHash('sha256').update(payload).digest('hex');
+    }
+
+    private static withDedupe<R>(key: string, producer: () => Promise<R>): Promise<R> {
+        const now = Date.now();
+        // purge expired
+        for (const [k, v] of PackageService.responseCache.entries()) {
+            if (v.expiry <= now) PackageService.responseCache.delete(k);
+        }
+        const existing = PackageService.responseCache.get(key);
+        if (existing && existing.expiry > now) {
+            console.log(`[PackageService] Dedupe cache hit key=${key.slice(0,8)}...`);
+            return existing.promise as Promise<R>;
+        }
+        const promise = producer();
+        PackageService.responseCache.set(key, { expiry: now + PackageService.CACHE_TTL_MS, promise: promise as any });
+        return promise;
+    }
     private get db(): SupabaseClient {
         return getDB();
     }
@@ -20,7 +50,7 @@ export class PackageService {
 
         const { data: destinations } = await this.db
             .from('vw_destinations_public')
-            .select('id,name,slug,base_price,metadata,center_lat,center_lng')
+            .select('id,name,slug,base_price,metadata,center_lat,center_lng,altitude_m')
             .in('id', destinationIds);
 
         const idToDestination = new Map((destinations || []).map((d: any) => [d.id, d]));
@@ -42,38 +72,46 @@ export class PackageService {
         }
         const people = Math.max(1, Number(req.people || 1));
 
-        const legs: PackageLeg[] = await this.buildLegs(ordered);
+        const cacheKey = PackageService.buildCacheKey({ destinations: ordered, startDate, people, bucket: req.priceBucket });
+        return await PackageService.withDedupe(cacheKey, async () => {
+            // Request meta log
+            const rangeStart = toYmdUtc(new Date(startDate));
+            const rangeEnd = toYmdUtc(addUtcDays(new Date(startDate), Math.max(0, ordered.length - 1)));
+            console.log(`[PackageService] Generate meta: startDate=${rangeStart}, range=${rangeStart}..${rangeEnd}, destinations=${ordered.length}, people=${people}, bucket=${req.priceBucket}`);
 
-        // Prepare containers
-        const amadeus = new AmadeusService();
-        const hotelSuggestionsByDay: Record<string, any[]> = {};
-        const accommodationCostsByDay: Record<string, number> = {};
+            const legs: PackageLeg[] = await this.buildLegs(ordered);
+            // Prepare containers
+            const amadeus = new AmadeusService();
+            const hotelSuggestionsByDay: Record<string, any[]> = {};
+            const accommodationCostsByDay: Record<string, number> = {};
 
-        // Restaurants top 3 by rating per destination and aligned with bucket
-        const restaurantsByDest = await this.fetchTopRestaurants(ordered, req.priceBucket);
+            // Restaurants top 3 by rating per destination and aligned with bucket
+            const restaurantsByDest = await this.fetchTopRestaurants(ordered, req.priceBucket);
 
-        // Common attractions
-        const { autoAddedAttractions, optionalAttractions } = req.includeCommonAttractions
-            ? await this.fetchAttractions(ordered)
-            : { autoAddedAttractions: {}, optionalAttractions: {} } as any;
+            // Common attractions
+            const { autoAddedAttractions, optionalAttractions } = req.includeCommonAttractions
+                ? await this.fetchAttractions(ordered)
+                : { autoAddedAttractions: {}, optionalAttractions: {} } as any;
 
-        // Weather per day
-        const weatherService = new WeatherService();
-        const days: DayPlan[] = [];
-        let activitiesTotal = 0;
-        let accommodationTotal = 0;
-        let transportDailyTotal = 0;
-        for (let i = 0; i < ordered.length; i++) {
+            // Weather per day
+            const weatherService = new WeatherService();
+            const days: DayPlan[] = [];
+            let activitiesTotal = 0;
+            let accommodationTotal = 0;
+            let transportDailyTotal = 0;
+            const weatherNullDays: Array<{ date: string; destinationId: string; reason: string }> = [];
+            for (let i = 0; i < ordered.length; i++) {
             const id = ordered[i];
-            const dayDate = new Date(startDate);
-            dayDate.setUTCDate(dayDate.getUTCDate() + i);
-            const dateISO = dayDate.toISOString().slice(0,10);
-            const weather = await this.fetchWeatherForDate(weatherService, id, dateISO);
+            const dayDate = addUtcDays(new Date(startDate), i);
+            const dateISO = toYmdUtc(dayDate);
+                const weather = await this.fetchWeatherForDate(weatherService, id, dateISO);
+                if (weather == null) {
+                    weatherNullDays.push({ date: dateISO, destinationId: id, reason: 'outside_5_day_forecast' });
+                }
 
             // Hotel: check-in today, check-out next day, 2 per room
             const dest = idToDestination.get(id);
-            const nextDate = new Date(dayDate);
-            nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+            const nextDate = addUtcDays(dayDate, 1);
             const roomQuantity = Math.ceil(people / 2);
             // Geocode-based hotels near destination center - try expanding radius if needed
             const lat = Number(dest?.center_lat);
@@ -123,7 +161,7 @@ export class PackageService {
                         hotelIds: batchIds,
                         adults: people,
                         checkInDate: dateISO,
-                        checkOutDate: nextDate.toISOString().slice(0,10),
+                        checkOutDate: toYmdUtc(nextDate),
                         roomQuantity: 1,
                         priceRange,
                         currency: 'INR',
@@ -157,7 +195,7 @@ export class PackageService {
                 price: accommodationCost,
                 currency: pick.offer?.offers?.[0]?.price?.currency,
                 checkInDate: dateISO,
-                checkOutDate: nextDate.toISOString().slice(0,10),
+                checkOutDate: toYmdUtc(nextDate),
                 roomQuantity: 1,
                 hotelId: pick.offer?.hotel?.hotelId,
                 latitude: pick.offer?.hotel?.latitude,
@@ -188,6 +226,7 @@ export class PackageService {
                 title: i === 0 ? 'Arrival & Check-in' : `Day ${i + 1} in ${destinationName}`,
                 destinationId: id,
                 destinationName,
+                destinationAltitudeM: dest?.altitude_m ?? undefined,
                 activities: actObjs,
                 activitiesCost,
                 hotel: selectedHotel || undefined,
@@ -198,37 +237,41 @@ export class PackageService {
             });
         }
 
-        // cab costs on legs using selected cab
-        const cabSelection = await this.selectCab(req.priceBucket, people);
-        let cabTotal = 0;
-        for (const leg of legs) {
-            const km = Number(leg.distanceKm || 0);
-            const legCost = km * Number((cabSelection as any)?.base_price_per_km || 0);
-            leg.cabCost = legCost;
-            cabTotal += legCost;
-        }
+            // cab costs on legs using selected cab
+            const cabSelection = await this.selectCab(req.priceBucket, people);
+            let cabTotal = 0;
+            for (const leg of legs) {
+                const km = Number(leg.distanceKm || 0);
+                const legCost = km * Number((cabSelection as any)?.base_price_per_km || 0);
+                leg.cabCost = legCost;
+                cabTotal += legCost;
+            }
 
-        return {
-            title: this.buildTitle(ordered, idToDestination),
-            startDate,
-            people: req.people,
-            cabType,
-            totalBasePrice: accommodationTotal + transportDailyTotal + activitiesTotal + cabTotal,
-            perPersonPrice: (accommodationTotal + transportDailyTotal + activitiesTotal + cabTotal) / people,
-            days,
-            legs,
-            currency: 'INR',
-            cabSelection: cabSelection ? { id: (cabSelection as any).id, type: cabType, estimatedCost: cabTotal } : { type: cabType, estimatedCost: cabTotal },
-            optionalAttractions: Object.values(optionalAttractions).flat().map((a: any) => ({ poiId: a.id, name: a.name, price: a.poi_pricing?.base_price ? Number(a.poi_pricing.base_price) : undefined })),
-            breakdown: { accommodation: accommodationTotal, transport: transportDailyTotal, activities: activitiesTotal, cab: cabTotal },
-        };
+            // Available cabs for UI switching (capacity >= people, available)
+            const availableCabs = await this.fetchAvailableCabs(people);
+
+            return {
+                title: this.buildTitle(ordered, idToDestination),
+                startDate,
+                people: req.people,
+                cabType,
+                totalBasePrice: accommodationTotal + transportDailyTotal + activitiesTotal + cabTotal,
+                perPersonPrice: (accommodationTotal + transportDailyTotal + activitiesTotal + cabTotal) / people,
+                days,
+                legs,
+                currency: 'INR',
+                cabSelection: cabSelection ? { id: (cabSelection as any).id, type: cabType, estimatedCost: cabTotal } : { type: cabType, estimatedCost: cabTotal },
+                optionalAttractions: Object.values(optionalAttractions).flat().map((a: any) => ({ poiId: a.id, name: a.name, price: a.poi_pricing?.base_price ? Number(a.poi_pricing.base_price) : undefined })),
+                breakdown: { accommodation: accommodationTotal, transport: transportDailyTotal, activities: activitiesTotal, cab: cabTotal },
+                meta: { weatherNullDays },
+                availableCabs,
+            };
+        });
     }
 
     private resolveStartDate(start?: string): string {
         if (start) return new Date(start).toISOString();
-        const d = new Date();
-        d.setUTCDate(d.getUTCDate() + 3);
-        return d.toISOString();
+        return addUtcDays(new Date(), 3).toISOString();
     }
 
     private presuggestCabType(people: number): CabType {
@@ -387,6 +430,30 @@ export class PackageService {
         return sorted[0];
     }
 
+    private async fetchAvailableCabs(people: number) {
+        const { data, error } = await this.db
+            .from('cab_inventory')
+            .select('id,cab_type,make,model,per_day_charge,capacity,is_available')
+            .gte('capacity', people)
+            .eq('is_available', true);
+        if (error || !data) return [];
+        // Sort by cab_type then by per_day_charge asc
+        const orderIndex: Record<CabType, number> = { hatchback: 0, sedan: 1, suv: 2, tempo: 3 };
+        const sorted = [...data].sort((a: any, b: any) => {
+            const t = (orderIndex[a.cab_type as CabType] ?? 99) - (orderIndex[b.cab_type as CabType] ?? 99);
+            if (t !== 0) return t;
+            return Number(a.per_day_charge || 0) - Number(b.per_day_charge || 0);
+        });
+        return sorted.map((c: any) => ({
+            id: c.id,
+            type: c.cab_type as CabType,
+            make: c.make,
+            model: c.model,
+            pricePerDay: c.per_day_charge ? Number(c.per_day_charge) : undefined,
+            capacity: Number(c.capacity || 0),
+        }));
+    }
+
     private mapBucketToRatings(bucket: PriceBucket): string[] {
         if (bucket === 'budget_conscious') return ['2', '3'];
         if (bucket === 'optimal') return ['4'];
@@ -414,8 +481,7 @@ export class PackageService {
         const days: DayPlan[] = [];
         for (let i = 0; i < ordered.length; i++) {
             const id = ordered[i];
-            const date = new Date(start);
-            date.setUTCDate(start.getUTCDate() + i);
+            const date = addUtcDays(start, i);
             const dest = idToDestination.get(id);
             const destinationName = dest?.name || 'Unknown Destination';
             const title = i === 0 ? 'Arrival & Check-in' : `Day ${i + 1} in ${destinationName}`;

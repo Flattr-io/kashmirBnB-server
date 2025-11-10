@@ -78,7 +78,7 @@ router.get('/', async (req: Request, res: Response) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.post('/', [authMiddleware], async (req: Request, res: Response) => {
-    const { name, slug, area, center, center_lat, center_lng, metadata, base_price } = req.body;
+    const { name, slug, area, center, center_lat, center_lng, metadata, base_price, altitude_m } = req.body;
     const destination = await destinationService.create({
         name: name,
         slug: slug,
@@ -88,6 +88,7 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
         center_lng: center_lng,
         metadata: metadata,
         base_price: base_price,
+        altitude_m: altitude_m,
     });
     res.send(destination);
 });

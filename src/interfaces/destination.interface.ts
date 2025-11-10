@@ -28,6 +28,7 @@ export interface IDestination {
     // Extensibility
     metadata?: Record<string, any>;
     base_price?: number;
+    altitude_m?: number;
 
     // Auditing
     created_by?: string | null;
@@ -47,6 +48,7 @@ export interface ICreateDestinationRequest {
 
     metadata?: Record<string, any>;
     base_price?: number;
+    altitude_m?: number;
 }
 
 export interface IUpdateDestinationRequest {
@@ -61,6 +63,7 @@ export interface IUpdateDestinationRequest {
 
     metadata?: Record<string, any>;
     base_price?: number;
+    altitude_m?: number;
 }
 
 export type RowWithGeoJSON = {
@@ -74,6 +77,7 @@ export type RowWithGeoJSON = {
     center_lat: number;
     center_lng: number;
     base_price: number;
+    altitude_m: number | null;
     area_geojson: string | null;
     center_geojson: string | null;
 };
