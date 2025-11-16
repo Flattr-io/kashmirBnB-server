@@ -250,7 +250,7 @@ export class PackageService {
             // Available cabs for UI switching (capacity >= people, available)
             const availableCabs = await this.fetchAvailableCabs(people);
 
-            return {
+            const result: PackageGenerationResult = {
                 title: this.buildTitle(ordered, idToDestination),
                 startDate,
                 people: req.people,
@@ -266,6 +266,16 @@ export class PackageService {
                 meta: { weatherNullDays },
                 availableCabs,
             };
+
+            // Persist the generated package for future retrieval
+            try {
+                const savedId = await this.persistPackage(result, req);
+                result.packageId = savedId;
+            } catch (e: any) {
+                console.error('[PackageService] Failed to persist package:', e?.message || e);
+            }
+
+            return result;
         });
     }
 
@@ -490,6 +500,7 @@ export class PackageService {
                 title,
                 destinationId: id,
                 destinationName,
+                destinationAltitudeM: dest?.altitude_m ?? undefined,
                 activities: [...activities],
                 restaurantSuggestions: [],
             });
@@ -500,5 +511,173 @@ export class PackageService {
     private buildTitle(ordered: string[], idToDestination: Map<string, any>): string {
         const names = ordered.map((id) => idToDestination.get(id)?.name).filter(Boolean);
         return names.length ? `${names.join(' • ')} Getaway` : 'Kashmir Getaway';
+    }
+
+    /**
+     * Persist the generated package in normalized tables with FKs to original entities.
+     */
+    private async persistPackage(pkg: PackageGenerationResult, req: GeneratePackageRequest): Promise<string> {
+        // Build denormalized references from the generated response
+        const destinationIds = Array.from(new Set((pkg.days || []).map((d) => d.destinationId)));
+        const activitiesRefs = (pkg.days || []).flatMap((d, idx) =>
+            (d.activities || [])
+                .filter((a) => !!a.poiId)
+                .map((a) => ({
+                    day_index: idx,
+                    destination_id: d.destinationId,
+                    poi_id: a.poiId,
+                    name: a.name,
+                }))
+        );
+        const restaurantRefs = (pkg.days || []).flatMap((d, idx) =>
+            (d.restaurantSuggestions || [])
+                .filter((r: any) => !!r.id)
+                .map((r: any) => ({
+                    day_index: idx,
+                    destination_id: d.destinationId,
+                    restaurant_id: r.id,
+                    name: r.name,
+                }))
+        );
+
+        // 1) Save packages row
+        const { data: pkgRow, error: pkgErr } = await this.db
+            .from('packages')
+            .insert({
+                title: pkg.title,
+                start_date: pkg.startDate,
+                people: pkg.people,
+                cab_type: pkg.cabType,
+                total_base_price: pkg.totalBasePrice,
+                per_person_price: pkg.perPersonPrice,
+                currency: pkg.currency,
+                request: {
+                    destinationIds: req.destinationIds,
+                    people: req.people,
+                    priceBucket: req.priceBucket,
+                    activities: req.activities,
+                    includeCommonAttractions: req.includeCommonAttractions,
+                    startDate: req.startDate,
+                },
+                breakdown: pkg.breakdown || {},
+                meta: pkg.meta || {},
+                available_cabs: pkg.availableCabs || [],
+                destination_ids: destinationIds,
+                activities_refs: activitiesRefs,
+                restaurant_refs: restaurantRefs,
+            })
+            .select('id')
+            .maybeSingle();
+        if (pkgErr || !pkgRow) throw new Error(pkgErr?.message || 'Failed to insert package');
+        const packageId: string = (pkgRow as any).id;
+
+        // 2) Save legs
+        if (pkg.legs && pkg.legs.length) {
+            const legRows = pkg.legs.map((l) => ({
+                package_id: packageId,
+                origin_id: l.originId,
+                destination_id: l.destinationId,
+                distance_km: l.distanceKm ?? null,
+                duration_minutes: l.durationMinutes ?? null,
+                cab_cost: (l as any).cabCost ?? null,
+            }));
+            const { error: legsErr } = await this.db.from('package_legs').insert(legRows);
+            if (legsErr) console.error('[PackageService] Failed to insert package legs:', legsErr.message);
+        }
+
+        // Helper to lookup weather snapshot id for a given day/destination
+        const getWeatherSnapshotId = async (destinationId: string, isoDate: string): Promise<string | null> => {
+            const ymd = isoDate.slice(0, 10);
+            const { data, error } = await this.db
+                .from('weather_snapshots')
+                .select('id')
+                .eq('destination_id', destinationId)
+                .eq('snapshot_date', ymd)
+                .maybeSingle();
+            if (error) return null;
+            return (data as any)?.id ?? null;
+        };
+
+        // 3) Save days and their nested entities
+        const weatherSnapshotIds: string[] = [];
+        for (let i = 0; i < (pkg.days || []).length; i++) {
+            const d = pkg.days[i];
+            const ymd = d.date.slice(0, 10);
+            const weatherSnapshotId = d.weather ? await getWeatherSnapshotId(d.destinationId, d.date) : null;
+            if (weatherSnapshotId) weatherSnapshotIds.push(weatherSnapshotId);
+            const { data: dayRow, error: dayErr } = await this.db
+                .from('package_days')
+                .insert({
+                    package_id: packageId,
+                    day_index: i,
+                    date: ymd,
+                    title: d.title,
+                    destination_id: d.destinationId,
+                    destination_name: d.destinationName,
+                    destination_altitude_m: d.destinationAltitudeM ?? null,
+                    activities_cost: d.activitiesCost ?? null,
+                    transport_cost: d.transportCost ?? null,
+                    leg_transport_cost: d.legTransportCost ?? null,
+                    hotel: d.hotel ? (d.hotel as any) : null,
+                    hotel_options: d.hotelOptions ? (d.hotelOptions as any) : null,
+                    weather_snapshot_id: weatherSnapshotId,
+                    weather_daily: d.weather ? (d.weather as any) : null,
+                })
+                .select('id')
+                .maybeSingle();
+            if (dayErr || !dayRow) {
+                console.error('[PackageService] Failed to insert package day:', dayErr?.message || 'unknown');
+                continue;
+            }
+            const packageDayId: string = (dayRow as any).id;
+
+            // 3.0) Join package_destinations for strict FK per day
+            await this.db
+                .from('package_destinations')
+                .upsert({
+                    package_id: packageId,
+                    day_index: i,
+                    destination_id: d.destinationId,
+                });
+
+            // 3.a) Activities
+            if (d.activities && d.activities.length) {
+                const activityRows = d.activities
+                    .filter((a) => !!a.poiId)
+                    .map((a) => ({
+                        package_day_id: packageDayId,
+                        poi_id: a.poiId,
+                        name: a.name,
+                        pricing_type: a.pricing_type ?? null,
+                        base_price: a.base_price ?? null,
+                        metadata: a.metadata ?? {},
+                    }));
+                const { error: actErr } = await this.db.from('package_day_activities').insert(activityRows);
+                if (actErr) console.error('[PackageService] Failed to insert day activities:', actErr.message);
+            }
+
+            // 3.b) Restaurants (suggestions)
+            if (d.restaurantSuggestions && d.restaurantSuggestions.length) {
+                const restRows = d.restaurantSuggestions
+                    .filter((r: any) => !!r.id)
+                    .map((r: any) => ({
+                        package_day_id: packageDayId,
+                        restaurant_id: r.id,
+                        name: r.name,
+                        price_range: r.price_range ?? null,
+                        suggestion: r,
+                    }));
+                const { error: restErr } = await this.db.from('package_day_restaurants').insert(restRows);
+                if (restErr) console.error('[PackageService] Failed to insert day restaurants:', restErr.message);
+            }
+        }
+
+        // 4) Update packages with aggregated weather snapshot ids (deduplicated)
+        if (weatherSnapshotIds.length) {
+            const distinctWeatherIds = Array.from(new Set(weatherSnapshotIds));
+            await this.db.from('packages').update({ weather_snapshot_ids: distinctWeatherIds }).eq('id', packageId);
+        }
+
+        return packageId;
     }
 }

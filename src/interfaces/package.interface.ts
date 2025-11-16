@@ -78,6 +78,7 @@ export interface AvailableCab {
 }
 
 export interface PackageGenerationResult {
+    packageId?: string;
     title: string;
     startDate: string;
     people: number;
