@@ -27,6 +27,8 @@ export interface IDestination {
 
     // Extensibility
     metadata?: Record<string, any>;
+    base_price?: number;
+    altitude_m?: number;
 
     // Auditing
     created_by?: string | null;
@@ -45,6 +47,8 @@ export interface ICreateDestinationRequest {
     area: IGeoJSONPolygon;
 
     metadata?: Record<string, any>;
+    base_price?: number;
+    altitude_m?: number;
 }
 
 export interface IUpdateDestinationRequest {
@@ -58,6 +62,8 @@ export interface IUpdateDestinationRequest {
     area?: IGeoJSONPolygon;
 
     metadata?: Record<string, any>;
+    base_price?: number;
+    altitude_m?: number;
 }
 
 export type RowWithGeoJSON = {
@@ -70,6 +76,17 @@ export type RowWithGeoJSON = {
     updated_at: string;
     center_lat: number;
     center_lng: number;
+    base_price: number;
+    altitude_m: number | null;
     area_geojson: string | null;
     center_geojson: string | null;
 };
+
+export type PricingBucketType = 'budget_conscious' | 'optimal' | 'go_crazy';
+
+export interface IDestinationPricingBucket {
+    destination_id: string;
+    bucket_type: PricingBucketType;
+    accommodation_price: number;
+    transport_price: number;
+}

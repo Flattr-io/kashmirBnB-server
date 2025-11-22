@@ -1,6 +1,7 @@
 import { Request, Response, Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { DestinationService } from '../services/destination.service';
+import { getDB } from '../configuration/database.config';
 
 const router = Router();
 const destinationService = new DestinationService();
@@ -77,7 +78,7 @@ router.get('/', async (req: Request, res: Response) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.post('/', [authMiddleware], async (req: Request, res: Response) => {
-    const { name, slug, area, center, center_lat, center_lng, metadata } = req.body;
+    const { name, slug, area, center, center_lat, center_lng, metadata, base_price, altitude_m } = req.body;
     const destination = await destinationService.create({
         name: name,
         slug: slug,
@@ -86,6 +87,8 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
         center_lat: center_lat,
         center_lng: center_lng,
         metadata: metadata,
+        base_price: base_price,
+        altitude_m: altitude_m,
     });
     res.send(destination);
 });
@@ -195,3 +198,83 @@ router.delete('/:destinationId', [authMiddleware], async (req: Request, res: Res
 });
 
 export default router;
+
+/**
+ * @swagger
+ * /destinations/pricing/buckets:
+ *   get:
+ *     summary: Get pricing buckets for all destinations
+ *     tags:
+ *       - Destinations
+ *     responses:
+ *       200:
+ *         description: Map of destination_id -> pricing buckets
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   destination_id:
+ *                     type: string
+ *                     format: uuid
+ *                   bucket_type:
+ *                     type: string
+ *                     enum: [budget_conscious, optimal, go_crazy]
+ *                   accommodation_price:
+ *                     type: number
+ *                   transport_price:
+ *                     type: number
+ */
+router.get('/pricing/buckets', async (req: Request, res: Response) => {
+    const db = getDB();
+    const { data, error } = await db
+        .from('destination_pricing_buckets')
+        .select('destination_id,bucket_type,accommodation_price,transport_price');
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+});
+
+/**
+ * @swagger
+ * /destinations/{destinationId}/pricing/buckets:
+ *   get:
+ *     summary: Get pricing buckets for a specific destination
+ *     tags:
+ *       - Destinations
+ *     parameters:
+ *       - in: path
+ *         name: destinationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Pricing buckets for the destination
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   bucket_type:
+ *                     type: string
+ *                     enum: [budget_conscious, optimal, go_crazy]
+ *                   accommodation_price:
+ *                     type: number
+ *                   transport_price:
+ *                     type: number
+ */
+router.get('/:destinationId/pricing/buckets', async (req: Request, res: Response) => {
+    const db = getDB();
+    const { destinationId } = req.params;
+    const { data, error } = await db
+        .from('destination_pricing_buckets')
+        .select('bucket_type,accommodation_price,transport_price')
+        .eq('destination_id', destinationId);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+});

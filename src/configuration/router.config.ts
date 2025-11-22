@@ -9,6 +9,7 @@ import poiCategoryRoutes from '../routes/poi.category.routes';
 import poiRatingRoutes from '../routes/poi-rating.routes';
 import poiWishlistRoutes from '../routes/poi.wishlist.routes';
 import chatRoutes from '../routes/chat.routes';
+import packageRoutes from '../routes/package.routes';
 import { getDB } from './database.config';
 
 // Health check throttling: cache DB status to avoid frequent queries
@@ -219,4 +220,5 @@ export const init = (app: Express) => {
     app.use('/api/poi-ratings', poiRatingRoutes);
     app.use('/api/poi-wishlist', poiWishlistRoutes);
     app.use('/api/chat', chatRoutes);
+    app.use('/api/packages', packageRoutes);
 };

@@ -9,6 +9,7 @@ import { init as initRouter } from '../configuration/router.config';
 import { errorHandler } from '../middlewares/error-handler.middleware';
 import { setupSwagger } from './swagger';
 import { WeatherScheduler } from '../utils/weather.scheduler';
+import { AmadeusTokenScheduler } from '../utils/amadeus.scheduler';
 import { createServer, Server as HttpServer } from 'http';
 import { SocketBootstrap } from './socket.bootstrap';
 
@@ -24,6 +25,7 @@ export class AppBootstrap {
     };
 
     private scheduler?: WeatherScheduler;
+    private amadeusScheduler?: AmadeusTokenScheduler;
     private httpServer?: HttpServer;
     private socket?: SocketBootstrap;
 
@@ -69,6 +71,9 @@ export class AppBootstrap {
         this.scheduler = new WeatherScheduler();
         this.scheduler.start();
         console.log('⏰ WeatherScheduler initialized (every 3 hours).');
+        this.amadeusScheduler = new AmadeusTokenScheduler();
+        this.amadeusScheduler.start();
+        console.log('🔐 AmadeusTokenScheduler initialized (every 25 minutes).');
         return this;
     }
 

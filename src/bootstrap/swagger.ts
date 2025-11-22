@@ -43,6 +43,179 @@ const options: swaggerJSDoc.Options = {
                 },
             },
             schemas: {
+                GeneratePackageRequest: {
+                    type: 'object',
+                    properties: {
+                        destinationIds: { type: 'array', items: { type: 'string', format: 'uuid' } },
+                        people: { type: 'integer', minimum: 1, example: 2 },
+                        priceBucket: { type: 'string', enum: ['budget_conscious','optimal','go_crazy'] },
+                        activities: { type: 'array', items: { type: 'string' } },
+                        includeCommonAttractions: { type: 'boolean', description: 'Auto-add top purchasable attractions and return the rest as suggestions' },
+                        startDate: { type: 'string', format: 'date-time', description: 'Optional start date (ISO, UTC). Pass to regenerate package for a different travel date. Defaults to now + 3 days. Must not be in the past.' },
+                    },
+                    required: ['destinationIds', 'people', 'priceBucket']
+                },
+                PackageLeg: {
+                    type: 'object',
+                    properties: {
+                        originId: { type: 'string', format: 'uuid' },
+                        destinationId: { type: 'string', format: 'uuid' },
+                        distanceKm: { type: 'number', nullable: true },
+                        durationMinutes: { type: 'integer', nullable: true },
+                        cabCost: { type: 'number', nullable: true, description: 'Transport cost for this leg' },
+                    },
+                    required: ['originId', 'destinationId']
+                },
+                ActivityWithPrice: {
+                    type: 'object',
+                    properties: {
+                        poiId: { type: 'string', format: 'uuid', description: 'POI identifier' },
+                        name: { type: 'string', description: 'Activity name' },
+                        pricing_type: { type: 'string', enum: ['one_time', 'per_person', 'rental', 'free'], nullable: true },
+                        base_price: { type: 'number', nullable: true, description: 'Base price in INR' },
+                        metadata: { type: 'object', nullable: true, description: 'Additional pricing metadata' },
+                    },
+                    required: ['poiId', 'name']
+                },
+                HotelOption: {
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string', description: 'Hotel name' },
+                        rating: { type: 'number', nullable: true, description: 'Hotel rating (1-5)' },
+                        address: { type: 'string', nullable: true },
+                        price: { type: 'number', nullable: true, description: 'Price in currency units' },
+                        currency: { type: 'string', nullable: true, example: 'INR' },
+                        checkInDate: { type: 'string', format: 'date', nullable: true },
+                        checkOutDate: { type: 'string', format: 'date', nullable: true },
+                        roomQuantity: { type: 'integer', nullable: true },
+                        hotelId: { type: 'string', nullable: true, description: 'Amadeus hotel ID' },
+                        distanceKm: { type: 'number', nullable: true, description: 'Distance from destination center in km' },
+                        latitude: { type: 'number', nullable: true },
+                        longitude: { type: 'number', nullable: true },
+                    },
+                    required: ['name']
+                },
+                RestaurantSuggestion: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid', description: 'Restaurant identifier' },
+                        name: { type: 'string' },
+                        price_range: { type: 'string', enum: ['budget', 'mid_range', 'premium'], nullable: true },
+                        special_delicacies: { type: 'array', items: { type: 'object' }, nullable: true },
+                        average_rating: { type: 'number', nullable: true, description: 'Average rating (0-5)' },
+                        veg_non_veg: { type: 'string', enum: ['veg', 'non_veg', 'both'], nullable: true },
+                        cuisine_types: { type: 'array', items: { type: 'string' }, nullable: true },
+                        description: { type: 'string', nullable: true },
+                    },
+                    required: ['id', 'name']
+                },
+                DayPlan: {
+                    type: 'object',
+                    properties: {
+                        date: { type: 'string', format: 'date-time', description: 'Date for this day plan' },
+                        title: { type: 'string', description: 'Day title (e.g., "Day 1 in Srinagar")' },
+                        destinationId: { type: 'string', format: 'uuid' },
+                        destinationName: { type: 'string', description: 'Name of the destination' },
+                        destinationAltitudeM: { type: 'number', nullable: true, description: 'Altitude in meters above sea level' },
+                        activities: { type: 'array', items: { $ref: '#/components/schemas/ActivityWithPrice' }, description: 'Activities for this day' },
+                        activitiesCost: { type: 'number', nullable: true, description: 'Total cost of activities for this day' },
+                        hotel: { $ref: '#/components/schemas/HotelOption', nullable: true, description: 'Selected hotel for this day' },
+                        hotelOptions: { type: 'array', items: { $ref: '#/components/schemas/HotelOption' }, nullable: true, description: 'Alternative hotel options' },
+                        restaurantSuggestions: { type: 'array', items: { $ref: '#/components/schemas/RestaurantSuggestion' }, nullable: true },
+                        transportCost: { type: 'number', nullable: true, description: 'Daily local transport cost' },
+                        legTransportCost: { type: 'number', nullable: true, description: 'Transport cost for leg to this destination' },
+                        weather: { type: 'object', nullable: true, description: 'Daily weather forecast (null if outside 5-day window)' },
+                    },
+                    required: ['date', 'title', 'destinationId', 'destinationName', 'activities']
+                },
+                AvailableCab: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid', nullable: true },
+                        type: { type: 'string', enum: ['hatchback','sedan','suv','tempo'] },
+                        make: { type: 'string' },
+                        model: { type: 'string' },
+                        pricePerDay: { type: 'number', nullable: true },
+                        capacity: { type: 'integer' }
+                    },
+                    required: ['type','make','model','capacity']
+                },
+                PackageGenerationResult: {
+                    type: 'object',
+                    properties: {
+                        packageId: { type: 'string', format: 'uuid', nullable: true, description: 'Saved package identifier' },
+                        title: { type: 'string', description: 'Package title (e.g., "Srinagar • Gulmarg Getaway")' },
+                        startDate: { type: 'string', format: 'date-time', description: 'Package start date (ISO UTC)' },
+                        people: { type: 'integer', minimum: 1, description: 'Number of travelers' },
+                        cabType: { type: 'string', enum: ['hatchback','sedan','suv','tempo'], description: 'Recommended cab type based on group size' },
+                        totalBasePrice: { type: 'number', description: 'Total package price in currency units' },
+                        perPersonPrice: { type: 'number', description: 'Price per person' },
+                        days: { type: 'array', items: { $ref: '#/components/schemas/DayPlan' }, description: 'Day-by-day itinerary' },
+                        legs: { type: 'array', items: { $ref: '#/components/schemas/PackageLeg' }, description: 'Transport legs between destinations' },
+                        currency: { type: 'string', example: 'INR', description: 'Currency code' },
+                        cabSelection: { $ref: '#/components/schemas/CabSelection', nullable: true, description: 'Selected cab details' },
+                        optionalAttractions: { type: 'array', items: { $ref: '#/components/schemas/OptionalAttraction' }, nullable: true, description: 'Additional optional attractions' },
+                        breakdown: {
+                            type: 'object',
+                            properties: {
+                                accommodation: { type: 'number', description: 'Total accommodation cost' },
+                                transport: { type: 'number', description: 'Total local transport cost' },
+                                activities: { type: 'number', description: 'Total activities cost' },
+                                cab: { type: 'number', description: 'Total inter-destination cab cost' },
+                            },
+                            description: 'Cost breakdown by category'
+                        },
+                        availableCabs: { type: 'array', items: { $ref: '#/components/schemas/AvailableCab' }, nullable: true, description: 'All available cab options for UI switching' },
+                        meta: {
+                            type: 'object',
+                            properties: {
+                                weatherNullDays: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            date: { type: 'string', format: 'date', description: 'Date with missing weather' },
+                                            destinationId: { type: 'string', format: 'uuid', description: 'Destination ID' },
+                                            reason: { type: 'string', example: 'outside_5_day_forecast', description: 'Reason weather is null' }
+                                        },
+                                        required: ['date', 'destinationId', 'reason']
+                                    },
+                                    description: 'Days where weather is null and the reason (typically outside 5-day forecast window)'
+                                }
+                            },
+                            nullable: true
+                        }
+                    },
+                    required: ['title','startDate','people','cabType','totalBasePrice','perPersonPrice','days','legs','currency']
+                },
+                CabSelection: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid', nullable: true, description: 'Cab inventory ID' },
+                        type: { type: 'string', enum: ['hatchback','sedan','suv','tempo'], description: 'Cab type' },
+                        estimatedCost: { type: 'number', nullable: true, description: 'Estimated total cost for all legs' }
+                    },
+                    required: ['type']
+                },
+                OptionalAttraction: {
+                    type: 'object',
+                    properties: {
+                        poiId: { type: 'string', format: 'uuid' },
+                        name: { type: 'string' },
+                        price: { type: 'number', nullable: true }
+                    },
+                    required: ['poiId','name']
+                },
+                DestinationPricingBucket: {
+                    type: 'object',
+                    properties: {
+                        destination_id: { type: 'string', format: 'uuid' },
+                        bucket_type: { type: 'string', enum: ['budget_conscious','optimal','go_crazy'] },
+                        accommodation_price: { type: 'number' },
+                        transport_price: { type: 'number' }
+                    },
+                    required: ['destination_id','bucket_type','accommodation_price','transport_price']
+                },
                 ChatMessage: {
                     type: 'object',
                     properties: {
@@ -279,6 +452,18 @@ const options: swaggerJSDoc.Options = {
                                 timezone: 'Asia/Kolkata',
                             },
                         },
+                        base_price: {
+                            type: 'number',
+                            format: 'float',
+                            description: 'Base price contribution for this destination',
+                            example: 2500.00,
+                        },
+                        altitude_m: {
+                            type: 'number',
+                            format: 'float',
+                            description: 'Altitude in meters above sea level',
+                            example: 1585.0,
+                        },
                         created_by: {
                             type: 'string',
                             format: 'uuid',
@@ -327,6 +512,12 @@ const options: swaggerJSDoc.Options = {
                                 elevation: 1585,
                                 timezone: 'Asia/Kolkata',
                             },
+                        },
+                        base_price: {
+                            type: 'number',
+                            format: 'float',
+                            description: 'Base price contribution for this destination',
+                            example: 2500.00,
                         },
                     },
                     required: ['name', 'slug', 'area', 'center'],
@@ -1185,6 +1376,10 @@ const options: swaggerJSDoc.Options = {
             {
                 name: 'Destinations',
                 description: 'Destination management and geographic data',
+            },
+            {
+                name: 'Packages',
+                description: 'Travel package generation and recommendations',
             },
             {
                 name: 'POIs',

@@ -15,19 +15,13 @@ export class WeatherScheduler {
 
     /**
      * Start scheduler
-     * Runs cron every 3 hours only when needed (0, 3, 6, 9, 12, 15, 18, 21, and final at 23:59)
+     * Runs cron every 9 hours
      */
     public start() {
-        // Run every 3 hours at minute 0
-        cron.schedule('0 0,3,6,9,12,15,18,21 * * *', async () => {
-            console.log(`[WeatherScheduler] Running 3-hour scheduled update at ${new Date().toISOString()}`);
+        // Run every 9 hours at minute 0
+        cron.schedule('0 */9 * * *', async () => {
+            console.log(`[WeatherScheduler] Running 9-hour scheduled update at ${new Date().toISOString()}`);
             await this.updateWeatherSnapshots();
-        });
-
-        // Final daily snapshot at 23:59
-        cron.schedule('59 23 * * *', async () => {
-            console.log(`[WeatherScheduler] Running final daily update at ${new Date().toISOString()}`);
-            await this.updateWeatherSnapshots(true);
         });
     }
 
