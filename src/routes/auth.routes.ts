@@ -6,97 +6,51 @@ const authService = new AuthService();
 
 /**
  * @swagger
- * /auth/signup:
- *   post:
- *     summary: Sign up a new user
- *     description: Create a new user account using email, password, name, and phone. Supabase Auth handles password hashing and validation. Returns user session with JWT tokens.
+ * /auth/google:
+ *   get:
+ *     summary: Initiate Google OAuth authentication
+ *     description: Returns a URL that the client should redirect to for Google OAuth authentication. After successful authentication, Google will redirect back to the callback URL with an authorization code.
  *     tags:
  *       - Auth
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/AuthSignupRequest'
- *           examples:
- *             valid_signup:
- *               summary: Valid signup request
- *               value:
- *                 email: "testuser@example.com"
- *                 password: "StrongPass#123"
- *                 name: "John Doe"
- *                 phone: "+91-9876543210"
- *             invalid_email:
- *               summary: Invalid email format
- *               value:
- *                 email: "invalid-email"
- *                 password: "StrongPass#123"
- *                 name: "John Doe"
- *                 phone: "+91-9876543210"
+ *     parameters:
+ *       - in: query
+ *         name: redirectTo
+ *         schema:
+ *           type: string
+ *           format: uri
+ *         description: URL to redirect to after OAuth callback (optional)
+ *         example: "http://localhost:3000/auth/callback"
  *     responses:
  *       200:
- *         description: User created successfully
+ *         description: OAuth URL generated successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/AuthResponse'
+ *               type: object
+ *               properties:
+ *                 url:
+ *                   type: string
+ *                   format: uri
+ *                   description: Google OAuth URL to redirect the user to
+ *                   example: "https://accounts.google.com/o/oauth2/v2/auth?..."
  *             examples:
  *               success:
- *                 summary: Successful signup
+ *                 summary: Successful OAuth URL generation
  *                 value:
- *                   user:
- *                     id: "123e4567-e89b-12d3-a456-426614174000"
- *                     email: "testuser@example.com"
- *                     name: "John Doe"
- *                     created_at: "2024-01-15T10:30:00Z"
- *                   access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
- *                   refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                   url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=..."
  *       400:
- *         description: Bad request - Invalid input data or user already exists
+ *         description: Bad request - Invalid redirect URL or OAuth configuration error
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *             examples:
- *               user_exists:
- *                 summary: User already exists
+ *               invalid_redirect:
+ *                 summary: Invalid redirect URL
  *                 value:
- *                   error: "User already exists"
- *                   message: "A user with this email address already exists"
+ *                   error: "Bad Request"
+ *                   message: "Invalid redirect URL"
  *                   statusCode: 400
- *                   timestamp: "2024-01-15T10:30:00Z"
- *               invalid_email:
- *                 summary: Invalid email format
- *                 value:
- *                   error: "Invalid email format"
- *                   message: "Please provide a valid email address"
- *                   statusCode: 400
- *                   timestamp: "2024-01-15T10:30:00Z"
- *               weak_password:
- *                 summary: Weak password
- *                 value:
- *                   error: "Password too weak"
- *                   message: "Password must be at least 8 characters long"
- *                   statusCode: 400
- *                   timestamp: "2024-01-15T10:30:00Z"
- *       422:
- *         description: Validation error - Missing required fields
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ValidationError'
- *             examples:
- *               missing_fields:
- *                 summary: Missing required fields
- *                 value:
- *                   error: "Validation Error"
- *                   message: "Missing required fields"
- *                   details:
- *                     - field: "email"
- *                       message: "Email is required"
- *                     - field: "password"
- *                       message: "Password is required"
- *                   statusCode: 422
  *                   timestamp: "2024-01-15T10:30:00Z"
  *       500:
  *         description: Internal server error
@@ -109,112 +63,78 @@ const authService = new AuthService();
  *                 summary: Server error
  *                 value:
  *                   error: "Internal Server Error"
- *                   message: "An unexpected error occurred while creating the user"
+ *                   message: "An unexpected error occurred while generating OAuth URL"
  *                   statusCode: 500
  *                   timestamp: "2024-01-15T10:30:00Z"
  */
-router.post('/signup', async (req: Request, res: Response) => {
-    const { email, password } = req.body;
-    const name = (req.body?.fullName ?? req.body?.name) as string | undefined;
-    const phone = (req.body?.phone ?? undefined) as string | undefined;
-    const result = await authService.signUp({ email, password, name, fullName: name, phone });
+router.get('/google', async (req: Request, res: Response) => {
+    const { redirectTo } = req.query;
+    const result = await authService.getGoogleOAuthUrl(redirectTo as string | undefined);
     res.send(result);
 });
 
 /**
  * @swagger
- * /auth/login:
- *   post:
- *     summary: Login a user
- *     description: Authenticate a user using email and password. Returns session information with JWT access and refresh tokens for API authentication.
+ * /auth/callback:
+ *   get:
+ *     summary: Handle OAuth callback
+ *     description: Exchanges the authorization code from Google OAuth for a user session. This endpoint is called by Google after successful authentication. Returns user session with JWT tokens.
  *     tags:
  *       - Auth
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/AuthLoginRequest'
- *           examples:
- *             valid_login:
- *               summary: Valid login request
- *               value:
- *                 email: "testuser@example.com"
- *                 password: "StrongPass#123"
- *             invalid_credentials:
- *               summary: Invalid credentials
- *               value:
- *                 email: "testuser@example.com"
- *                 password: "WrongPassword"
+ *     parameters:
+ *       - in: query
+ *         name: code
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Authorization code from Google OAuth
+ *         example: "4/0AeanR..."
  *     responses:
  *       200:
- *         description: Login successful, returns user session with JWT tokens
+ *         description: Authentication successful, returns user session with JWT tokens
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/AuthResponse'
  *             examples:
  *               success:
- *                 summary: Successful login
+ *                 summary: Successful authentication
  *                 value:
  *                   user:
  *                     id: "123e4567-e89b-12d3-a456-426614174000"
- *                     email: "testuser@example.com"
+ *                     email: "user@gmail.com"
  *                     name: "John Doe"
  *                     created_at: "2024-01-15T10:30:00Z"
- *                   access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
- *                   refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                   session:
+ *                     access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                     refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
  *       401:
- *         description: Unauthorized - Invalid credentials or user not found
+ *         description: Unauthorized - Invalid or expired authorization code
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *             examples:
- *               invalid_credentials:
- *                 summary: Invalid credentials
+ *               invalid_code:
+ *                 summary: Invalid authorization code
  *                 value:
- *                   error: "Invalid credentials"
- *                   message: "Email or password is incorrect"
- *                   statusCode: 401
- *                   timestamp: "2024-01-15T10:30:00Z"
- *               user_not_found:
- *                 summary: User not found
- *                 value:
- *                   error: "User not found"
- *                   message: "No user found with this email address"
+ *                   error: "Unauthorized"
+ *                   message: "Invalid or expired authorization code"
  *                   statusCode: 401
  *                   timestamp: "2024-01-15T10:30:00Z"
  *       400:
- *         description: Bad request - Invalid input data
+ *         description: Bad request - Missing authorization code
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *             examples:
- *               missing_fields:
- *                 summary: Missing required fields
+ *               missing_code:
+ *                 summary: Missing authorization code
  *                 value:
  *                   error: "Bad Request"
- *                   message: "Email and password are required"
+ *                   message: "Authorization code is required"
  *                   statusCode: 400
- *                   timestamp: "2024-01-15T10:30:00Z"
- *       422:
- *         description: Validation error - Invalid email format
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ValidationError'
- *             examples:
- *               invalid_email:
- *                 summary: Invalid email format
- *                 value:
- *                   error: "Validation Error"
- *                   message: "Invalid email format"
- *                   details:
- *                     - field: "email"
- *                       message: "Email must be a valid email address"
- *                   statusCode: 422
  *                   timestamp: "2024-01-15T10:30:00Z"
  *       500:
  *         description: Internal server error
@@ -227,14 +147,87 @@ router.post('/signup', async (req: Request, res: Response) => {
  *                 summary: Server error
  *                 value:
  *                   error: "Internal Server Error"
- *                   message: "An unexpected error occurred during authentication"
+ *                   message: "An unexpected error occurred during OAuth callback"
  *                   statusCode: 500
  *                   timestamp: "2024-01-15T10:30:00Z"
  */
-router.post('/login', async (req: Request, res: Response) => {
-    const { email, password } = req.body;
-    const session = await authService.login({ email, password });
-    res.send(session);
+router.get('/callback', async (req: Request, res: Response) => {
+    const {
+        code,
+        access_token,
+        refresh_token,
+        expires_in,
+        expires_at,
+        token_type,
+        provider_token,
+        provider_refresh_token,
+    } = req.query as Record<string, string | undefined>;
+
+    const hasCode = typeof code === 'string' && code.length > 0;
+    const hasAccessToken = typeof access_token === 'string' && access_token.length > 0;
+
+    if (!hasCode && !hasAccessToken) {
+        const fallbackRedirect = process.env.CLIENT_URL ? `${process.env.CLIENT_URL}/auth/error` : '/auth/error';
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Finishing sign in...</title>
+</head>
+<body>
+    <p>Finishing sign in...</p>
+    <script>
+        (function () {
+            const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+            if (!hash) {
+                window.location.replace(${JSON.stringify(fallbackRedirect)});
+                return;
+            }
+            const params = new URLSearchParams(hash);
+            const query = params.toString();
+            const separator = query ? '?' : '';
+            window.location.replace(window.location.pathname + separator + query);
+        })();
+    </script>
+</body>
+</html>`;
+        res.type('html').send(html);
+        return;
+    }
+
+    try {
+        if (hasCode && code) {
+            const result = await authService.handleOAuthCallback(code);
+            res.send(result);
+            return;
+        }
+
+        if (hasAccessToken && access_token) {
+            const result = await authService.handleOAuthTokenResponse({
+                accessToken: access_token,
+                refreshToken: refresh_token,
+                expiresIn: expires_in ? Number(expires_in) : undefined,
+                expiresAt: expires_at ? Number(expires_at) : undefined,
+                tokenType: token_type,
+                providerToken: provider_token,
+                providerRefreshToken: provider_refresh_token,
+            });
+            res.send(result);
+            return;
+        }
+
+        res.status(400).json({
+            error: 'Bad Request',
+            message: 'Authorization response missing credentials',
+            statusCode: 400,
+        });
+    } catch (error: any) {
+        res.status(error.statusCode || 500).json({
+            error: error.name || 'Internal Server Error',
+            message: error.message || 'An unexpected error occurred',
+            statusCode: error.statusCode || 500,
+        });
+    }
 });
 
 export default router;

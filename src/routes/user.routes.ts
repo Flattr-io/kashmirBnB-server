@@ -9,6 +9,34 @@ const userService = new UserService();
 
 /**
  * @swagger
+ * /users/me/profile:
+ *   get:
+ *     summary: Get the authenticated user's profile
+ *     description: Returns the complete record from user_profiles for the currently authenticated user.
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Authenticated user's profile
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Profile not found
+ */
+router.get('/me/profile', [authMiddleware], async (req: Request, res: Response) => {
+    const authUser = (req as any)?.user;
+    if (!authUser?.id) {
+        return res.status(401).json({ error: 'Unauthorized', message: 'User context missing' });
+    }
+
+    const profile = await userService.getProfileByUserId(authUser.id);
+    res.send(profile);
+});
+
+/**
+ * @swagger
  * /users:
  *   get:
  *     summary: Get all users

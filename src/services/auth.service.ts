@@ -1,4 +1,4 @@
-import { SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient, User } from '@supabase/supabase-js';
 import { getDB } from '../configuration/database.config';
 import { BadRequestError, UnauthorizedError } from '@hyperflake/http-errors';
 import { ChatService } from './chat.service';
@@ -9,82 +9,109 @@ export class AuthService {
     }
 
     /**
-     * @desc Sign up a new user (Supabase Auth handles password hashing)
+     * @desc Get Google OAuth URL for authentication
      */
-    async signUp(params: { email: string; password: string; name?: string; fullName?: string; phone?: string }) {
-        const { email, password } = params;
-        const fullName = (params.fullName || params.name || '').trim();
-        const phone = (params.phone || '').trim();
+    async getGoogleOAuthUrl(redirectTo?: string) {
+        const redirectUrl =
+            redirectTo || process.env.SUPABASE_REDIRECT_URL || 'http://localhost:3000/api/auth/callback';
 
-        console.log('Attempting signup for:', email);
+        console.log('Generating Google OAuth URL, redirect to:', redirectUrl);
+
+        // Supabase-js types don't yet expose flowType, so keep this object loosely typed.
+        const oauthOptions: Record<string, any> = {
+            redirectTo: redirectUrl,
+            flowType: 'pkce',
+            skipBrowserRedirect: true,
+            queryParams: {
+                access_type: 'offline',
+                prompt: 'consent',
+            },
+        };
+
+        const { data, error } = await this.db.auth.signInWithOAuth({
+            provider: 'google',
+            options: oauthOptions,
+        });
+
+        if (error) {
+            console.error('Supabase OAuth URL generation error:', error);
+            throw new BadRequestError(error.message);
+        }
+
+        console.log('Google OAuth URL generated successfully');
+        return data;
+    }
+
+    /**
+     * @desc Handle OAuth callback and exchange code for session
+     * @param code - Authorization code from OAuth provider
+     * @param codeVerifier - PKCE code verifier (if using PKCE)
+     */
+    async handleOAuthCallback(code: string) {
+        console.log('Handling OAuth callback with code');
 
         try {
-            const { data, error } = await this.db.auth.signUp({
-                email,
-                password,
-                options: {
-                    data: {
-                        full_name: fullName || undefined,
-                        phone: phone || undefined
-                    }
-                }
-            });
+            // Exchange the code for a session
+            const { data, error } = await this.db.auth.exchangeCodeForSession(code);
 
             if (error) {
-                console.error('Supabase auth signup error:', error);
-                // If user already exists, try to sign them in instead
-                if (error.message.includes('already registered') || error.message.includes('User already registered')) {
-                    console.log('User already exists, attempting login...');
-                    const loginResult = await this.login({ email, password });
-                    return loginResult;
-                }
-                throw new BadRequestError(error.message);
+                console.error('OAuth callback error:', error);
+                throw new UnauthorizedError(error.message);
             }
 
-            console.log('Auth signup successful, user ID:', data.user?.id);
-
-            const userId = data.user?.id;
-            if (userId) {
-                // 1) Upsert public.users with phone/email (id is FK to auth.users)
-                await this.db.from('users').upsert({ id: userId, phone: phone || null, email }).select('id');
-
-                // 2) Upsert user_profiles with defaults { full_name, phone, email }
-                await this.db
-                    .from('user_profiles')
-                    .upsert({ id: userId, full_name: fullName || 'User', phone: phone || null, email })
-                    .select('id');
-
-                // 3) Ensure chat_username exists
-                const chatService = new ChatService();
-                await chatService.ensureUserHasUsername(userId);
+            if (!data.session || !data.user) {
+                throw new UnauthorizedError('Failed to create session');
             }
 
-            console.log('Signup completed successfully');
+            console.log('OAuth callback successful, user ID:', data.user.id);
+
+            await this.syncUserProfile(data.user);
+
+            console.log('User profile setup completed');
             return data;
         } catch (error) {
-            console.error('Signup error:', error);
+            console.error('OAuth callback error:', error);
             throw error;
         }
     }
 
-    /**
-     * @desc Login user and return session (JWT included)
-     */
-    async login(params: { email: string; password: string }) {
-        const { email, password } = params;
+    async handleOAuthTokenResponse(params: {
+        accessToken: string;
+        refreshToken?: string;
+        expiresIn?: number;
+        expiresAt?: number;
+        tokenType?: string;
+        providerToken?: string;
+        providerRefreshToken?: string;
+    }) {
+        console.log('Handling OAuth response via fragment tokens');
 
-        console.log('Attempting login for:', email);
+        const { accessToken, refreshToken, expiresIn, expiresAt, tokenType, providerToken, providerRefreshToken } =
+            params;
 
-        const { data, error } = await this.db.auth.signInWithPassword({
-            email,
-            password,
-        });
+        const { data, error } = await this.db.auth.getUser(accessToken);
+        if (error || !data.user) {
+            console.error('Failed to fetch user from access token:', error);
+            throw new UnauthorizedError('Invalid access token received');
+        }
 
-        
+        await this.syncUserProfile(data.user);
 
-        if (error) throw new UnauthorizedError(error.message);
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        const computedExpiry = expiresAt || (expiresIn ? nowSeconds + expiresIn : nowSeconds + 3600);
 
-        return data; // Contains user and access_token
+        return {
+            user: data.user,
+            session: {
+                access_token: accessToken,
+                token_type: tokenType || 'bearer',
+                expires_in: expiresIn || 3600,
+                expires_at: computedExpiry,
+                refresh_token: refreshToken || null,
+                provider_token: providerToken || null,
+                provider_refresh_token: providerRefreshToken || null,
+            },
+        };
     }
 
     /**
@@ -102,5 +129,34 @@ export class AuthService {
     async logout() {
         const { error } = await this.db.auth.signOut();
         if (error) throw new BadRequestError(error.message);
+    }
+
+    private async syncUserProfile(user: User) {
+        const userId = user.id;
+        const email = user.email;
+        const fullName =
+            user.user_metadata?.full_name ||
+            user.user_metadata?.name ||
+            user.user_metadata?.display_name ||
+            user.user_metadata?.preferred_username ||
+            'User';
+        const phone = user.user_metadata?.phone || null;
+
+        if (!userId) {
+            throw new BadRequestError('User ID missing from auth payload');
+        }
+
+        await this.db
+            .from('users')
+            .upsert({ id: userId, phone: phone || null, email })
+            .select('id');
+
+        await this.db
+            .from('user_profiles')
+            .upsert({ id: userId, full_name: fullName, phone: phone || null, email })
+            .select('id');
+
+        const chatService = new ChatService();
+        await chatService.ensureUserHasUsername(userId);
     }
 }
