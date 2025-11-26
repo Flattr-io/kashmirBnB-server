@@ -238,6 +238,33 @@ const options: swaggerJSDoc.Options = {
                     },
                     required: ['userState', 'canSend', 'messagesAvailable', 'messages'],
                 },
+                ChatSocketMessage: {
+                    type: 'object',
+                    description: 'Payload emitted when a chat message is sent or received over the socket connection',
+                    properties: {
+                        text: { type: 'string', description: 'Message body as provided by the user' },
+                        username: { type: 'string', description: 'Display name derived from Supabase profile metadata' },
+                        timestamp: { type: 'string', format: 'date-time', description: 'ISO timestamp generated on the server' },
+                        socketId: { type: 'string', description: 'Origin socket identifier for rate-limit diagnostics' },
+                    },
+                    required: ['text', 'username', 'timestamp', 'socketId'],
+                },
+                ChatSocketSendPayload: {
+                    type: 'object',
+                    description: 'Payload the client must emit on the send-message event',
+                    properties: {
+                        text: { type: 'string', description: 'User generated message, trimmed server-side', minLength: 1 },
+                    },
+                    required: ['text'],
+                },
+                ChatSocketError: {
+                    type: 'object',
+                    description: 'Structure emitted through error-message or unauthorized socket events',
+                    properties: {
+                        error: { type: 'string', description: 'Human friendly error explanation' },
+                    },
+                    required: ['error'],
+                },
                 // User Schemas
                 User: {
                     type: 'object',
@@ -340,23 +367,58 @@ const options: swaggerJSDoc.Options = {
                     },
                     required: ['email', 'password'],
                 },
+                AuthSession: {
+                    type: 'object',
+                    description: 'Supabase session payload returned after OAuth sign-in or token exchange',
+                    properties: {
+                        access_token: {
+                            type: 'string',
+                            description: 'JWT access token that must be sent in the Authorization header when calling protected APIs',
+                        },
+                        token_type: {
+                            type: 'string',
+                            description: 'Token type to prepend when constructing the Authorization header',
+                            example: 'bearer',
+                        },
+                        expires_in: {
+                            type: 'integer',
+                            description: 'Number of seconds from issuance until the access token expires',
+                            example: 3600,
+                        },
+                        expires_at: {
+                            type: 'integer',
+                            description: 'Unix timestamp (seconds) when the access token expires',
+                            example: 1700000000,
+                        },
+                        refresh_token: {
+                            type: 'string',
+                            nullable: true,
+                            description: 'Refresh token used to obtain a new access token without re-authenticating',
+                        },
+                        provider_token: {
+                            type: 'string',
+                            nullable: true,
+                            description: 'Raw provider token returned by Google OAuth (if requested)',
+                        },
+                        provider_refresh_token: {
+                            type: 'string',
+                            nullable: true,
+                            description: 'Provider refresh token for long-lived access (if returned)',
+                        },
+                    },
+                    required: ['access_token', 'token_type', 'expires_in', 'expires_at'],
+                },
                 AuthResponse: {
                     type: 'object',
                     properties: {
                         user: {
                             $ref: '#/components/schemas/User',
                         },
-                        access_token: {
-                            type: 'string',
-                            description: 'JWT access token for API authentication',
-                            example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-                        },
-                        refresh_token: {
-                            type: 'string',
-                            description: 'JWT refresh token for token renewal',
-                            example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                        session: {
+                            $ref: '#/components/schemas/AuthSession',
                         },
                     },
+                    required: ['user', 'session'],
                 },
                 // Destination Schemas
                 GeoJSONPoint: {

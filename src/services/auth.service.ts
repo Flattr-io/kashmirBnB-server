@@ -11,26 +11,20 @@ export class AuthService {
     /**
      * @desc Get Google OAuth URL for authentication
      */
-    async getGoogleOAuthUrl(redirectTo?: string) {
-        const redirectUrl =
-            redirectTo || process.env.SUPABASE_REDIRECT_URL || 'http://localhost:3000/api/auth/callback';
+    async getGoogleOAuthUrl() {
+        const redirectUrl = process.env.SUPABASE_REDIRECT_URL || 'http://localhost:3000/api/auth/callback';
 
         console.log('Generating Google OAuth URL, redirect to:', redirectUrl);
 
-        // Supabase-js types don't yet expose flowType, so keep this object loosely typed.
-        const oauthOptions: Record<string, any> = {
-            redirectTo: redirectUrl,
-            flowType: 'pkce',
-            skipBrowserRedirect: true,
-            queryParams: {
-                access_type: 'offline',
-                prompt: 'consent',
-            },
-        };
-
         const { data, error } = await this.db.auth.signInWithOAuth({
             provider: 'google',
-            options: oauthOptions,
+            options: {
+                redirectTo: redirectUrl,
+                queryParams: {
+                    access_type: 'offline',
+                    prompt: 'consent',
+                },
+            },
         });
 
         if (error) {

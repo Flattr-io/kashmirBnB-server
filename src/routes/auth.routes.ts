@@ -6,92 +6,108 @@ const authService = new AuthService();
 
 /**
  * @swagger
- * /auth/google:
+ * /auth/google-login:
  *   get:
- *     summary: Initiate Google OAuth authentication
- *     description: Returns a URL that the client should redirect to for Google OAuth authentication. After successful authentication, Google will redirect back to the callback URL with an authorization code.
+ *     summary: Redirect user to Google OAuth consent screen
+ *     description: |
+ *       Generates a Supabase-managed Google OAuth URL and immediately issues an HTTP 302 redirect to that URL.
+ *       The Supabase project is configured with the callback URL defined in `SUPABASE_REDIRECT_URL`.
  *     tags:
  *       - Auth
- *     parameters:
- *       - in: query
- *         name: redirectTo
- *         schema:
- *           type: string
- *           format: uri
- *         description: URL to redirect to after OAuth callback (optional)
- *         example: "http://localhost:3000/auth/callback"
  *     responses:
- *       200:
- *         description: OAuth URL generated successfully
- *         content:
- *           application/json:
+ *       302:
+ *         description: Redirect to Google OAuth consent page
+ *         headers:
+ *           Location:
  *             schema:
- *               type: object
- *               properties:
- *                 url:
- *                   type: string
- *                   format: uri
- *                   description: Google OAuth URL to redirect the user to
- *                   example: "https://accounts.google.com/o/oauth2/v2/auth?..."
- *             examples:
- *               success:
- *                 summary: Successful OAuth URL generation
- *                 value:
- *                   url: "https://accounts.google.com/o/oauth2/v2/auth?client_id=..."
+ *               type: string
+ *               format: uri
+ *             description: Fully qualified Google OAuth URL (includes PKCE params and prompt configuration)
  *       400:
- *         description: Bad request - Invalid redirect URL or OAuth configuration error
+ *         description: OAuth configuration error
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *             examples:
- *               invalid_redirect:
- *                 summary: Invalid redirect URL
+ *               config_error:
+ *                 summary: Supabase OAuth misconfiguration
  *                 value:
  *                   error: "Bad Request"
- *                   message: "Invalid redirect URL"
+ *                   message: "Supabase project is missing OAuth credentials"
  *                   statusCode: 400
  *                   timestamp: "2024-01-15T10:30:00Z"
  *       500:
- *         description: Internal server error
+ *         description: Unexpected error when preparing the OAuth redirect
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *             examples:
- *               server_error:
- *                 summary: Server error
- *                 value:
- *                   error: "Internal Server Error"
- *                   message: "An unexpected error occurred while generating OAuth URL"
- *                   statusCode: 500
- *                   timestamp: "2024-01-15T10:30:00Z"
  */
-router.get('/google', async (req: Request, res: Response) => {
-    const { redirectTo } = req.query;
-    const result = await authService.getGoogleOAuthUrl(redirectTo as string | undefined);
-    res.send(result);
+router.get('/google-login', async (req: Request, res: Response) => {
+    const result = await authService.getGoogleOAuthUrl();
+    res.redirect(result.url as string);
 });
 
 /**
  * @swagger
  * /auth/callback:
  *   get:
- *     summary: Handle OAuth callback
- *     description: Exchanges the authorization code from Google OAuth for a user session. This endpoint is called by Google after successful authentication. Returns user session with JWT tokens.
+ *     summary: Exchange Google OAuth credentials for a Supabase session
+ *     description: |
+ *       Handles both authorization-code and implicit/token responses coming back from Google/Supabase.
+ *       Returns the Supabase user plus session object the client should persist.
  *     tags:
  *       - Auth
  *     parameters:
  *       - in: query
  *         name: code
- *         required: true
+ *         required: false
  *         schema:
  *           type: string
- *         description: Authorization code from Google OAuth
+ *         description: Authorization code returned by Google when using the PKCE redirect flow
  *         example: "4/0AeanR..."
+ *       - in: query
+ *         name: access_token
+ *         schema:
+ *           type: string
+ *         description: Supabase access token returned via implicit OAuth flow (fragment params rehydrated by frontend helper)
+ *       - in: query
+ *         name: refresh_token
+ *         schema:
+ *           type: string
+ *           nullable: true
+ *         description: Optional refresh token included in implicit flow responses
+ *       - in: query
+ *         name: expires_in
+ *         schema:
+ *           type: integer
+ *         description: Seconds until the Supabase access token expires
+ *       - in: query
+ *         name: expires_at
+ *         schema:
+ *           type: integer
+ *         description: Unix timestamp (seconds) when the Supabase access token expires
+ *       - in: query
+ *         name: token_type
+ *         schema:
+ *           type: string
+ *         description: Token type to use in the Authorization header (defaults to `bearer`)
+ *       - in: query
+ *         name: provider_token
+ *         schema:
+ *           type: string
+ *           nullable: true
+ *         description: Optional Google access token forwarded by Supabase
+ *       - in: query
+ *         name: provider_refresh_token
+ *         schema:
+ *           type: string
+ *           nullable: true
+ *         description: Optional Google refresh token forwarded by Supabase
  *     responses:
  *       200:
- *         description: Authentication successful, returns user session with JWT tokens
+ *         description: Authentication successful, Supabase session returned
  *         content:
  *           application/json:
  *             schema:
@@ -103,13 +119,16 @@ router.get('/google', async (req: Request, res: Response) => {
  *                   user:
  *                     id: "123e4567-e89b-12d3-a456-426614174000"
  *                     email: "user@gmail.com"
- *                     name: "John Doe"
- *                     created_at: "2024-01-15T10:30:00Z"
+ *                     user_metadata:
+ *                       full_name: "John Doe"
  *                   session:
  *                     access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
- *                     refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                     token_type: "bearer"
+ *                     expires_in: 3600
+ *                     expires_at: 1700000000
+ *                     refresh_token: "eyJh..."
  *       401:
- *         description: Unauthorized - Invalid or expired authorization code
+ *         description: Invalid or expired authorization code/token
  *         content:
  *           application/json:
  *             schema:
@@ -119,11 +138,11 @@ router.get('/google', async (req: Request, res: Response) => {
  *                 summary: Invalid authorization code
  *                 value:
  *                   error: "Unauthorized"
- *                   message: "Invalid or expired authorization code"
+ *                   message: "Invalid or expired authorization credentials"
  *                   statusCode: 401
  *                   timestamp: "2024-01-15T10:30:00Z"
  *       400:
- *         description: Bad request - Missing authorization code
+ *         description: Missing authorization code or access token
  *         content:
  *           application/json:
  *             schema:
@@ -133,7 +152,7 @@ router.get('/google', async (req: Request, res: Response) => {
  *                 summary: Missing authorization code
  *                 value:
  *                   error: "Bad Request"
- *                   message: "Authorization code is required"
+ *                   message: "Authorization response missing credentials"
  *                   statusCode: 400
  *                   timestamp: "2024-01-15T10:30:00Z"
  *       500:
