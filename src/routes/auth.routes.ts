@@ -8,21 +8,26 @@ const authService = new AuthService();
  * @swagger
  * /auth/google-login:
  *   get:
- *     summary: Redirect user to Google OAuth consent screen
+ *     summary: Generate Google OAuth redirect metadata
  *     description: |
- *       Generates a Supabase-managed Google OAuth URL and immediately issues an HTTP 302 redirect to that URL.
- *       The Supabase project is configured with the callback URL defined in `SUPABASE_REDIRECT_URL`.
+ *       Calls Supabase Auth to create a Google OAuth URL that already contains PKCE parameters and prompt configuration.
+ *       The endpoint returns the URL payload so that web and mobile clients can decide how to handle the redirect (open in a new tab, deep link, etc.).
+ *       The Supabase project must have `SUPABASE_REDIRECT_URL` configured to point back to `/auth/callback`.
  *     tags:
  *       - Auth
  *     responses:
- *       302:
- *         description: Redirect to Google OAuth consent page
- *         headers:
- *           Location:
+ *       200:
+ *         description: Supabase OAuth URL generated successfully
+ *         content:
+ *           application/json:
  *             schema:
- *               type: string
- *               format: uri
- *             description: Fully qualified Google OAuth URL (includes PKCE params and prompt configuration)
+ *               $ref: '#/components/schemas/AuthOAuthRedirect'
+ *             examples:
+ *               success:
+ *                 summary: URL generated successfully
+ *                 value:
+ *                   provider: "google"
+ *                   url: "https://fdkcujxhvkwtiaziocpw.supabase.co/auth/v1/oauth/callback?provider=google&code_challenge=..."
  *       400:
  *         description: OAuth configuration error
  *         content:
@@ -46,7 +51,7 @@ const authService = new AuthService();
  */
 router.get('/google-login', async (req: Request, res: Response) => {
     const result = await authService.getGoogleOAuthUrl();
-    res.redirect(result.url as string);
+    res.send(result);
 });
 
 /**
@@ -57,6 +62,7 @@ router.get('/google-login', async (req: Request, res: Response) => {
  *     description: |
  *       Handles both authorization-code and implicit/token responses coming back from Google/Supabase.
  *       Returns the Supabase user plus session object the client should persist.
+ *       When neither a `code` nor `access_token` is present, the endpoint returns a minimal HTML helper page that copies fragment parameters into the query string and reloads itself.
  *     tags:
  *       - Auth
  *     parameters:
@@ -127,6 +133,14 @@ router.get('/google-login', async (req: Request, res: Response) => {
  *                     expires_in: 3600
  *                     expires_at: 1700000000
  *                     refresh_token: "eyJh..."
+ *           text/html:
+ *             schema:
+ *               type: string
+ *               description: Helper page shown when Supabase returns fragment tokens that must be rehydrated into the query string before retrying the same endpoint.
+ *             examples:
+ *               fragment_handler:
+ *                 summary: Fragment rehydration page
+ *                 value: "<!DOCTYPE html><html><body><p>Finishing sign in...</p></body></html>"
  *       401:
  *         description: Invalid or expired authorization code/token
  *         content:

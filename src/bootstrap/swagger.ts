@@ -420,6 +420,23 @@ const options: swaggerJSDoc.Options = {
                     },
                     required: ['user', 'session'],
                 },
+                AuthOAuthRedirect: {
+                    type: 'object',
+                    description: 'Supabase-managed OAuth redirect metadata returned by /auth/google-login',
+                    properties: {
+                        provider: {
+                            type: 'string',
+                            description: 'OAuth provider being used for the login',
+                            example: 'google',
+                        },
+                        url: {
+                            type: 'string',
+                            format: 'uri',
+                            description: 'Absolute Supabase OAuth URL that the client should redirect the browser to',
+                        },
+                    },
+                    required: ['url'],
+                },
                 // Destination Schemas
                 GeoJSONPoint: {
                     type: 'object',
