@@ -6,215 +6,168 @@ const authService = new AuthService();
 
 /**
  * @swagger
- * /auth/signup:
- *   post:
- *     summary: Sign up a new user
- *     description: Create a new user account using email, password, name, and phone. Supabase Auth handles password hashing and validation. Returns user session with JWT tokens.
+ * /auth/google-login:
+ *   get:
+ *     summary: Generate Google OAuth redirect metadata
+ *     description: |
+ *       Calls Supabase Auth to create a Google OAuth URL that already contains PKCE parameters and prompt configuration.
+ *       The endpoint returns the URL payload so that web and mobile clients can decide how to handle the redirect (open in a new tab, deep link, etc.).
+ *       The Supabase project must have `SUPABASE_REDIRECT_URL` configured to point back to `/auth/callback`.
  *     tags:
  *       - Auth
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/AuthSignupRequest'
- *           examples:
- *             valid_signup:
- *               summary: Valid signup request
- *               value:
- *                 email: "testuser@example.com"
- *                 password: "StrongPass#123"
- *                 name: "John Doe"
- *                 phone: "+91-9876543210"
- *             invalid_email:
- *               summary: Invalid email format
- *               value:
- *                 email: "invalid-email"
- *                 password: "StrongPass#123"
- *                 name: "John Doe"
- *                 phone: "+91-9876543210"
  *     responses:
  *       200:
- *         description: User created successfully
+ *         description: Supabase OAuth URL generated successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/AuthResponse'
+ *               $ref: '#/components/schemas/AuthOAuthRedirect'
  *             examples:
  *               success:
- *                 summary: Successful signup
+ *                 summary: URL generated successfully
  *                 value:
- *                   user:
- *                     id: "123e4567-e89b-12d3-a456-426614174000"
- *                     email: "testuser@example.com"
- *                     name: "John Doe"
- *                     created_at: "2024-01-15T10:30:00Z"
- *                   access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
- *                   refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                   provider: "google"
+ *                   url: "https://fdkcujxhvkwtiaziocpw.supabase.co/auth/v1/oauth/callback?provider=google&code_challenge=..."
  *       400:
- *         description: Bad request - Invalid input data or user already exists
+ *         description: OAuth configuration error
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *             examples:
- *               user_exists:
- *                 summary: User already exists
+ *               config_error:
+ *                 summary: Supabase OAuth misconfiguration
  *                 value:
- *                   error: "User already exists"
- *                   message: "A user with this email address already exists"
+ *                   error: "Bad Request"
+ *                   message: "Supabase project is missing OAuth credentials"
  *                   statusCode: 400
- *                   timestamp: "2024-01-15T10:30:00Z"
- *               invalid_email:
- *                 summary: Invalid email format
- *                 value:
- *                   error: "Invalid email format"
- *                   message: "Please provide a valid email address"
- *                   statusCode: 400
- *                   timestamp: "2024-01-15T10:30:00Z"
- *               weak_password:
- *                 summary: Weak password
- *                 value:
- *                   error: "Password too weak"
- *                   message: "Password must be at least 8 characters long"
- *                   statusCode: 400
- *                   timestamp: "2024-01-15T10:30:00Z"
- *       422:
- *         description: Validation error - Missing required fields
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ValidationError'
- *             examples:
- *               missing_fields:
- *                 summary: Missing required fields
- *                 value:
- *                   error: "Validation Error"
- *                   message: "Missing required fields"
- *                   details:
- *                     - field: "email"
- *                       message: "Email is required"
- *                     - field: "password"
- *                       message: "Password is required"
- *                   statusCode: 422
  *                   timestamp: "2024-01-15T10:30:00Z"
  *       500:
- *         description: Internal server error
+ *         description: Unexpected error when preparing the OAuth redirect
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *             examples:
- *               server_error:
- *                 summary: Server error
- *                 value:
- *                   error: "Internal Server Error"
- *                   message: "An unexpected error occurred while creating the user"
- *                   statusCode: 500
- *                   timestamp: "2024-01-15T10:30:00Z"
  */
-router.post('/signup', async (req: Request, res: Response) => {
-    const { email, password } = req.body;
-    const name = (req.body?.fullName ?? req.body?.name) as string | undefined;
-    const phone = (req.body?.phone ?? undefined) as string | undefined;
-    const result = await authService.signUp({ email, password, name, fullName: name, phone });
+router.get('/google-login', async (req: Request, res: Response) => {
+    const result = await authService.getGoogleOAuthUrl();
     res.send(result);
 });
 
 /**
  * @swagger
- * /auth/login:
- *   post:
- *     summary: Login a user
- *     description: Authenticate a user using email and password. Returns session information with JWT access and refresh tokens for API authentication.
+ * /auth/callback:
+ *   get:
+ *     summary: Exchange Google OAuth credentials for a Supabase session
+ *     description: |
+ *       Handles both authorization-code and implicit/token responses coming back from Google/Supabase.
+ *       Returns the Supabase user plus session object the client should persist.
+ *       When neither a `code` nor `access_token` is present, the endpoint returns a minimal HTML helper page that copies fragment parameters into the query string and reloads itself.
  *     tags:
  *       - Auth
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/AuthLoginRequest'
- *           examples:
- *             valid_login:
- *               summary: Valid login request
- *               value:
- *                 email: "testuser@example.com"
- *                 password: "StrongPass#123"
- *             invalid_credentials:
- *               summary: Invalid credentials
- *               value:
- *                 email: "testuser@example.com"
- *                 password: "WrongPassword"
+ *     parameters:
+ *       - in: query
+ *         name: code
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Authorization code returned by Google when using the PKCE redirect flow
+ *         example: "4/0AeanR..."
+ *       - in: query
+ *         name: access_token
+ *         schema:
+ *           type: string
+ *         description: Supabase access token returned via implicit OAuth flow (fragment params rehydrated by frontend helper)
+ *       - in: query
+ *         name: refresh_token
+ *         schema:
+ *           type: string
+ *           nullable: true
+ *         description: Optional refresh token included in implicit flow responses
+ *       - in: query
+ *         name: expires_in
+ *         schema:
+ *           type: integer
+ *         description: Seconds until the Supabase access token expires
+ *       - in: query
+ *         name: expires_at
+ *         schema:
+ *           type: integer
+ *         description: Unix timestamp (seconds) when the Supabase access token expires
+ *       - in: query
+ *         name: token_type
+ *         schema:
+ *           type: string
+ *         description: Token type to use in the Authorization header (defaults to `bearer`)
+ *       - in: query
+ *         name: provider_token
+ *         schema:
+ *           type: string
+ *           nullable: true
+ *         description: Optional Google access token forwarded by Supabase
+ *       - in: query
+ *         name: provider_refresh_token
+ *         schema:
+ *           type: string
+ *           nullable: true
+ *         description: Optional Google refresh token forwarded by Supabase
  *     responses:
  *       200:
- *         description: Login successful, returns user session with JWT tokens
+ *         description: Authentication successful, Supabase session returned
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/AuthResponse'
  *             examples:
  *               success:
- *                 summary: Successful login
+ *                 summary: Successful authentication
  *                 value:
  *                   user:
  *                     id: "123e4567-e89b-12d3-a456-426614174000"
- *                     email: "testuser@example.com"
- *                     name: "John Doe"
- *                     created_at: "2024-01-15T10:30:00Z"
- *                   access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
- *                   refresh_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                     email: "user@gmail.com"
+ *                     user_metadata:
+ *                       full_name: "John Doe"
+ *                   session:
+ *                     access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                     token_type: "bearer"
+ *                     expires_in: 3600
+ *                     expires_at: 1700000000
+ *                     refresh_token: "eyJh..."
+ *           text/html:
+ *             schema:
+ *               type: string
+ *               description: Helper page shown when Supabase returns fragment tokens that must be rehydrated into the query string before retrying the same endpoint.
+ *             examples:
+ *               fragment_handler:
+ *                 summary: Fragment rehydration page
+ *                 value: "<!DOCTYPE html><html><body><p>Finishing sign in...</p></body></html>"
  *       401:
- *         description: Unauthorized - Invalid credentials or user not found
+ *         description: Invalid or expired authorization code/token
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *             examples:
- *               invalid_credentials:
- *                 summary: Invalid credentials
+ *               invalid_code:
+ *                 summary: Invalid authorization code
  *                 value:
- *                   error: "Invalid credentials"
- *                   message: "Email or password is incorrect"
- *                   statusCode: 401
- *                   timestamp: "2024-01-15T10:30:00Z"
- *               user_not_found:
- *                 summary: User not found
- *                 value:
- *                   error: "User not found"
- *                   message: "No user found with this email address"
+ *                   error: "Unauthorized"
+ *                   message: "Invalid or expired authorization credentials"
  *                   statusCode: 401
  *                   timestamp: "2024-01-15T10:30:00Z"
  *       400:
- *         description: Bad request - Invalid input data
+ *         description: Missing authorization code or access token
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *             examples:
- *               missing_fields:
- *                 summary: Missing required fields
+ *               missing_code:
+ *                 summary: Missing authorization code
  *                 value:
  *                   error: "Bad Request"
- *                   message: "Email and password are required"
+ *                   message: "Authorization response missing credentials"
  *                   statusCode: 400
- *                   timestamp: "2024-01-15T10:30:00Z"
- *       422:
- *         description: Validation error - Invalid email format
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ValidationError'
- *             examples:
- *               invalid_email:
- *                 summary: Invalid email format
- *                 value:
- *                   error: "Validation Error"
- *                   message: "Invalid email format"
- *                   details:
- *                     - field: "email"
- *                       message: "Email must be a valid email address"
- *                   statusCode: 422
  *                   timestamp: "2024-01-15T10:30:00Z"
  *       500:
  *         description: Internal server error
@@ -227,14 +180,87 @@ router.post('/signup', async (req: Request, res: Response) => {
  *                 summary: Server error
  *                 value:
  *                   error: "Internal Server Error"
- *                   message: "An unexpected error occurred during authentication"
+ *                   message: "An unexpected error occurred during OAuth callback"
  *                   statusCode: 500
  *                   timestamp: "2024-01-15T10:30:00Z"
  */
-router.post('/login', async (req: Request, res: Response) => {
-    const { email, password } = req.body;
-    const session = await authService.login({ email, password });
-    res.send(session);
+router.get('/callback', async (req: Request, res: Response) => {
+    const {
+        code,
+        access_token,
+        refresh_token,
+        expires_in,
+        expires_at,
+        token_type,
+        provider_token,
+        provider_refresh_token,
+    } = req.query as Record<string, string | undefined>;
+
+    const hasCode = typeof code === 'string' && code.length > 0;
+    const hasAccessToken = typeof access_token === 'string' && access_token.length > 0;
+
+    if (!hasCode && !hasAccessToken) {
+        const fallbackRedirect = process.env.CLIENT_URL ? `${process.env.CLIENT_URL}/auth/error` : '/auth/error';
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Finishing sign in...</title>
+</head>
+<body>
+    <p>Finishing sign in...</p>
+    <script>
+        (function () {
+            const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+            if (!hash) {
+                window.location.replace(${JSON.stringify(fallbackRedirect)});
+                return;
+            }
+            const params = new URLSearchParams(hash);
+            const query = params.toString();
+            const separator = query ? '?' : '';
+            window.location.replace(window.location.pathname + separator + query);
+        })();
+    </script>
+</body>
+</html>`;
+        res.type('html').send(html);
+        return;
+    }
+
+    try {
+        if (hasCode && code) {
+            const result = await authService.handleOAuthCallback(code);
+            res.send(result);
+            return;
+        }
+
+        if (hasAccessToken && access_token) {
+            const result = await authService.handleOAuthTokenResponse({
+                accessToken: access_token,
+                refreshToken: refresh_token,
+                expiresIn: expires_in ? Number(expires_in) : undefined,
+                expiresAt: expires_at ? Number(expires_at) : undefined,
+                tokenType: token_type,
+                providerToken: provider_token,
+                providerRefreshToken: provider_refresh_token,
+            });
+            res.send(result);
+            return;
+        }
+
+        res.status(400).json({
+            error: 'Bad Request',
+            message: 'Authorization response missing credentials',
+            statusCode: 400,
+        });
+    } catch (error: any) {
+        res.status(error.statusCode || 500).json({
+            error: error.name || 'Internal Server Error',
+            message: error.message || 'An unexpected error occurred',
+            statusCode: error.statusCode || 500,
+        });
+    }
 });
 
 export default router;
