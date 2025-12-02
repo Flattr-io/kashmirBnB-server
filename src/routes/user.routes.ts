@@ -37,6 +37,70 @@ router.get('/me/profile', [authMiddleware], async (req: Request, res: Response) 
 
 /**
  * @swagger
+ * /users/me/profile:
+ *   patch:
+ *     summary: Update the authenticated user's profile
+ *     description: Updates the profile fields for the currently authenticated user. Supports updating phone, verification_status, and other profile fields.
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               full_name:
+ *                 type: string
+ *                 example: Jane Smith
+ *               phone:
+ *                 type: string
+ *                 example: "+1234567890"
+ *               avatar_url:
+ *                 type: string
+ *                 example: "https://example.com/avatar.jpg"
+ *               bio:
+ *                 type: string
+ *                 example: "Travel enthusiast"
+ *               location:
+ *                 type: string
+ *                 example: "New York, NY"
+ *               verification_status:
+ *                 type: string
+ *                 enum: [unverified, pending, verified, rejected]
+ *                 example: verified
+ *               gender:
+ *                 type: string
+ *                 enum: [male, female, other, prefer_not_to_say]
+ *                 example: female
+ *               online_status:
+ *                 type: string
+ *                 enum: [online, offline, away, busy]
+ *                 example: online
+ *     responses:
+ *       200:
+ *         description: Profile updated successfully
+ *       400:
+ *         description: Bad request (invalid field values)
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Profile not found
+ */
+router.patch('/me/profile', [authMiddleware], async (req: Request, res: Response) => {
+    const authUser = (req as any)?.user;
+    if (!authUser?.id) {
+        return res.status(401).json({ error: 'Unauthorized', message: 'User context missing' });
+    }
+
+    const profile = await userService.updateProfile({ userId: authUser.id, ...req.body });
+    res.send(profile);
+});
+
+/**
+ * @swagger
  * /users:
  *   get:
  *     summary: Get all users
@@ -196,6 +260,74 @@ router.patch('/:userId', [authMiddleware, requireSelfOrRoles('userId', 'admin')]
 router.delete('/:userId', [authMiddleware, requireSelfOrRoles('userId', 'admin')], async (req: Request, res: Response) => {
     const result = await userService.delete({ userId: req.params.userId });
     res.send(result);
+});
+
+/**
+ * @swagger
+ * /users/{userId}/profile:
+ *   patch:
+ *     summary: Update a user's profile
+ *     description: Updates profile fields for a specific user. Users can update their own profile; admins can update any profile. Supports updating phone, verification_status, and other profile fields.
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The ID of the user whose profile to update
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               full_name:
+ *                 type: string
+ *                 example: Jane Smith
+ *               phone:
+ *                 type: string
+ *                 example: "+1234567890"
+ *               avatar_url:
+ *                 type: string
+ *                 example: "https://example.com/avatar.jpg"
+ *               bio:
+ *                 type: string
+ *                 example: "Travel enthusiast"
+ *               location:
+ *                 type: string
+ *                 example: "New York, NY"
+ *               verification_status:
+ *                 type: string
+ *                 enum: [unverified, pending, verified, rejected]
+ *                 example: verified
+ *               gender:
+ *                 type: string
+ *                 enum: [male, female, other, prefer_not_to_say]
+ *                 example: female
+ *               online_status:
+ *                 type: string
+ *                 enum: [online, offline, away, busy]
+ *                 example: online
+ *     responses:
+ *       200:
+ *         description: Profile updated successfully
+ *       400:
+ *         description: Bad request (invalid field values)
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (not own profile and not admin)
+ *       404:
+ *         description: Profile not found
+ */
+router.patch('/:userId/profile', [authMiddleware, requireSelfOrRoles('userId', 'admin')], async (req: Request, res: Response) => {
+    const profile = await userService.updateProfile({ userId: req.params.userId, ...req.body });
+    res.send(profile);
 });
 
 export default router;

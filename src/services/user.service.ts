@@ -98,6 +98,134 @@ export class UserService {
         return normalizedProfile;
     }
 
+    /**
+     * @desc Update a user's profile
+     */
+    async updateProfile(params: {
+        userId: string;
+        full_name?: string;
+        avatar_url?: string;
+        bio?: string;
+        location?: string;
+        phone?: string;
+        email?: string;
+        date_of_birth?: string;
+        gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say';
+        nationality?: string;
+        emergency_contact?: any;
+        preferences?: any;
+        verification_status?: 'unverified' | 'pending' | 'verified' | 'rejected';
+        verification_documents?: any;
+        is_active?: boolean;
+        online_status?: 'online' | 'offline' | 'away' | 'busy';
+    }): Promise<IUserProfile> {
+        const { userId, ...payload } = params;
+
+        // Verify profile exists
+        await this.getProfileByUserId(userId);
+
+        // Validate verification_status if provided
+        if (payload.verification_status !== undefined) {
+            const validStatuses = ['unverified', 'pending', 'verified', 'rejected'];
+            if (!validStatuses.includes(payload.verification_status)) {
+                throw new BadRequestError(
+                    `Invalid verification_status. Must be one of: ${validStatuses.join(', ')}`
+                );
+            }
+        }
+
+        // Validate gender if provided
+        if (payload.gender !== undefined) {
+            const validGenders = ['male', 'female', 'other', 'prefer_not_to_say'];
+            if (!validGenders.includes(payload.gender)) {
+                throw new BadRequestError(`Invalid gender. Must be one of: ${validGenders.join(', ')}`);
+            }
+        }
+
+        // Validate online_status if provided
+        if (payload.online_status !== undefined) {
+            const validStatuses = ['online', 'offline', 'away', 'busy'];
+            if (!validStatuses.includes(payload.online_status)) {
+                throw new BadRequestError(`Invalid online_status. Must be one of: ${validStatuses.join(', ')}`);
+            }
+        }
+
+        // Validate phone length if provided
+        if (payload.phone !== undefined && payload.phone !== null && payload.phone.length > 15) {
+            throw new BadRequestError('Phone number must be 15 characters or less');
+        }
+
+        // Check for duplicate phone number if phone is being updated
+        if (payload.phone !== undefined && payload.phone !== null && payload.phone.trim() !== '') {
+            const { data: existingUser, error: checkError } = await this.db
+                .from('users')
+                .select('id')
+                .eq('phone', payload.phone)
+                .neq('id', userId)
+                .maybeSingle();
+
+            if (checkError) throw new Error(checkError.message);
+            if (existingUser) {
+                throw new BadRequestError('This phone number is already registered to another account');
+            }
+        }
+
+        // Update user_profiles
+        const { data, error } = await this.db
+            .from('user_profiles')
+            .update(payload)
+            .eq('id', userId)
+            .select()
+            .single();
+
+        if (error) {
+            // Handle unique constraint violations
+            if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
+                throw new BadRequestError('This phone number is already registered to another account');
+            }
+            throw new Error(error.message);
+        }
+        if (!data) throw new NotFoundError(`Profile for user ${userId} not found after update.`);
+
+        // Sync phone and email to users table if they were updated
+        if (payload.phone !== undefined || payload.email !== undefined) {
+            const usersUpdatePayload: { phone?: string | null; email?: string | null } = {};
+            if (payload.phone !== undefined) {
+                usersUpdatePayload.phone = payload.phone || null;
+            }
+            if (payload.email !== undefined) {
+                usersUpdatePayload.email = payload.email || null;
+            }
+
+            const { error: usersUpdateError } = await this.db
+                .from('users')
+                .update(usersUpdatePayload)
+                .eq('id', userId);
+
+            if (usersUpdateError) {
+                // Handle unique constraint violations for users table
+                if (
+                    usersUpdateError.code === '23505' ||
+                    usersUpdateError.message?.includes('duplicate key') ||
+                    usersUpdateError.message?.includes('unique constraint')
+                ) {
+                    throw new BadRequestError('This phone number is already registered to another account');
+                }
+                throw new Error(usersUpdateError.message);
+            }
+        }
+
+        const normalizedProfile: IUserProfile = {
+            ...data,
+            verification_status: data.verification_status ?? 'unverified',
+            kyc_status: data.kyc_status ?? 'pending',
+            dob: data.dob ?? null,
+            gender: data.gender ?? null,
+        };
+
+        return normalizedProfile;
+    }
+
     // ---------------------
     // PRIVATE UTILITIES
     // ---------------------
