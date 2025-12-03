@@ -108,6 +108,30 @@ export class AuthService {
         };
     }
 
+    async signInWithGoogleIdToken(idToken: string, nonce?: string) {
+        console.log('Signing in with Google ID token');
+
+        const { data, error } = await this.db.auth.signInWithIdToken({
+            provider: 'google',
+            token: idToken,
+            nonce,
+        });
+
+        if (error) {
+            console.error('Failed to sign in with Google ID token:', error);
+            throw new UnauthorizedError(error.message);
+        }
+
+        if (!data.session || !data.user) {
+            throw new UnauthorizedError('Failed to create session from ID token');
+        }
+
+        await this.syncUserProfile(data.user);
+
+        console.log('Google ID token sign-in successful, user ID:', data.user.id);
+        return data;
+    }
+
     /**
      * @desc Verify Supabase token for protected endpoints
      */

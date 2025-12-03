@@ -263,4 +263,77 @@ router.get('/callback', async (req: Request, res: Response) => {
     }
 });
 
+/**
+ * @swagger
+ * /auth/google-id-token:
+ *   post:
+ *     summary: Exchange a Google ID token for a Supabase session
+ *     description: Accepts a Google-issued ID token (for example from OAuth on the client) and uses Supabase Auth's signInWithIdToken helper to mint a full Supabase session.
+ *     tags:
+ *       - Auth
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - idToken
+ *             properties:
+ *               idToken:
+ *                 type: string
+ *                 description: Google ID token obtained on the client
+ *               nonce:
+ *                 type: string
+ *                 description: Optional nonce used when generating the ID token
+ *     responses:
+ *       200:
+ *         description: Authentication successful, Supabase session returned
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       400:
+ *         description: Missing or invalid ID token payload
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: ID token rejected by Supabase
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.post('/google-id-token', async (req: Request, res: Response) => {
+    const { idToken, nonce } = req.body as { idToken?: string; nonce?: string };
+
+    if (!idToken || typeof idToken !== 'string') {
+        res.status(400).json({
+            error: 'Bad Request',
+            message: 'idToken is required in the request body',
+            statusCode: 400,
+        });
+        return;
+    }
+
+    try {
+        const result = await authService.signInWithGoogleIdToken(idToken, typeof nonce === 'string' ? nonce : undefined);
+        res.send(result);
+    } catch (error: any) {
+        res.status(error.statusCode || 500).json({
+            error: error.name || 'Internal Server Error',
+            message: error.message || 'An unexpected error occurred',
+            statusCode: error.statusCode || 500,
+        });
+    }
+});
+
 export default router;
