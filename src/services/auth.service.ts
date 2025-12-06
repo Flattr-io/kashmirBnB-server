@@ -151,14 +151,24 @@ export class AuthService {
 
     private async syncUserProfile(user: User) {
         const userId = user.id;
-        const email = user.email;
+        const metadata = user.user_metadata || {};
+        const email = user.email || metadata.email || null;
         const fullName =
-            user.user_metadata?.full_name ||
-            user.user_metadata?.name ||
-            user.user_metadata?.display_name ||
-            user.user_metadata?.preferred_username ||
+            metadata.full_name ||
+            metadata.name ||
+            metadata.display_name ||
+            metadata.preferred_username ||
             'User';
-        const phone = user.user_metadata?.phone || null;
+        const avatarUrlRaw =
+            metadata.avatar_url ||
+            metadata.avatarUrl ||
+            metadata.picture ||
+            metadata.image ||
+            metadata.profile_image ||
+            metadata.profile_image_url ||
+            null;
+        const avatarUrl =
+            typeof avatarUrlRaw === 'string' && avatarUrlRaw.trim().length > 0 ? avatarUrlRaw.trim() : null;
 
         if (!userId) {
             throw new BadRequestError('User ID missing from auth payload');
@@ -166,13 +176,19 @@ export class AuthService {
 
         await this.db
             .from('users')
-            .upsert({ id: userId, phone: phone || null, email })
+            .upsert({ id: userId, email })
             .select('id');
 
-        await this.db
-            .from('user_profiles')
-            .upsert({ id: userId, full_name: fullName, phone: phone || null, email })
-            .select('id');
+        const profilePayload: { id: string; full_name: string; email?: string | null; avatar_url?: string } = {
+            id: userId,
+            full_name: fullName,
+            email,
+        };
+        if (avatarUrl) {
+            profilePayload.avatar_url = avatarUrl;
+        }
+
+        await this.db.from('user_profiles').upsert(profilePayload).select('id');
 
         const chatService = new ChatService();
         await chatService.ensureUserHasUsername(userId);
