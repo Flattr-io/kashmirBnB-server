@@ -1,8 +1,13 @@
 import { Request, Response, Router } from 'express';
 import { AuthService } from '../services/auth.service';
+import { authMiddleware } from '../middlewares/auth.middleware';
+import { PhoneVerificationService } from '../services/phone-verification.service';
+import { UserService } from '../services/user.service';
 
 const router = Router();
 const authService = new AuthService();
+const userService = new UserService();
+const phoneVerificationService = new PhoneVerificationService();
 
 /**
  * @swagger
@@ -325,8 +330,95 @@ router.post('/google-id-token', async (req: Request, res: Response) => {
     }
 
     try {
-        const result = await authService.signInWithGoogleIdToken(idToken, typeof nonce === 'string' ? nonce : undefined);
+        const result = await authService.signInWithGoogleIdToken(
+            idToken,
+            typeof nonce === 'string' ? nonce : undefined
+        );
         res.send(result);
+    } catch (error: any) {
+        res.status(error.statusCode || 500).json({
+            error: error.name || 'Internal Server Error',
+            message: error.message || 'An unexpected error occurred',
+            statusCode: error.statusCode || 500,
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /auth/verify-phone:
+ *   post:
+ *     summary: Verify a user's phone number using a signed token
+ *     description: |
+ *       Accepts a JWT issued by the phone verification provider. The backend validates the signature
+ *       with `PHONE_VERIFICATION_API_KEY` and, when successful, persists the phone number in the user's profile
+ *       while marking `verification_status` as `verified`.
+ *     tags:
+ *       - Auth
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Signed JWT returned by the phone verification provider
+ *     responses:
+ *       200:
+ *         description: Phone number verified and stored successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 profile:
+ *                   $ref: '#/components/schemas/UserProfile'
+ *       400:
+ *         description: Token missing or payload invalid
+ *       401:
+ *         description: Authorization missing or verification token rejected
+ *       500:
+ *         description: Unexpected server error
+ */
+router.post('/verify-phone', [authMiddleware], async (req: Request, res: Response) => {
+    const authUser = (req as any)?.user;
+    if (!authUser?.id) {
+        res.status(401).json({
+            error: 'Unauthorized',
+            message: 'User context missing',
+            statusCode: 401,
+        });
+        return;
+    }
+    const { phoneToken } = req.body;
+    if (!phoneToken || typeof phoneToken !== 'string') {
+        res.status(400).json({
+            error: 'Bad Request',
+            message: 'token is required in the request body',
+            statusCode: 400,
+        });
+        return;
+    }
+    try {
+        const { phone } = phoneVerificationService.verifyPhoneToken(phoneToken);
+        const profile = await userService.updateProfile({
+            userId: authUser.id,
+            phone,
+            verification_status: 'verified',
+        });
+
+        res.send({
+            message: 'Phone number verified successfully',
+            profile,
+        });
     } catch (error: any) {
         res.status(error.statusCode || 500).json({
             error: error.name || 'Internal Server Error',
