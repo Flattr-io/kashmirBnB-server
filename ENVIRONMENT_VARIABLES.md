@@ -19,6 +19,7 @@
 |----------|-------------|----------|
 | `TOMORROW_API_KEY` | Tomorrow.io weather API key | ✅ |
 | `MAPBOX_API_KEY` | Mapbox geocoding API key | ✅ |
+| `PHONE_VERIFICATION_API_KEY` | Secret used to verify phone verification JWTs | ✅ |
 
 ### CORS Configuration
 | Variable | Description | Default | Required |
@@ -39,6 +40,9 @@
 |----------|-------------|---------|-------|
 | `JWT_SECRET` | JWT signing secret | `your_jwt_secret_here` | Authentication |
 | `SESSION_SECRET` | Session secret | `your_session_secret_here` | Sessions |
+| `PHONE_VERIFICATION_ISSUER` | Expected issuer for phone verification JWTs | _unset_ | Phone verification |
+| `PHONE_VERIFICATION_AUDIENCE` | Expected audience for phone verification JWTs | _unset_ | Phone verification |
+| `PHONE_VERIFICATION_PHONE_CLAIM` | Custom claim key that contains the phone number | _unset_ | Phone verification |
 
 ### Logging & Debugging
 | Variable | Description | Default | Usage |
