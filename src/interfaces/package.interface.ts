@@ -101,3 +101,26 @@ export interface PackageGenerationResult {
     availableCabs?: AvailableCab[];
 }
 
+
+export interface UpdatePackageConfigurationRequest {
+    startDate?: string; // Optional new start date for rescheduling
+    cabId?: string;
+    dayConfigurations?: Array<{
+        dayIndex: number;
+        hotelId?: string;
+        activityIds?: string[]; // List of POI IDs to set for this day
+    }>;
+}
+
+export interface BookingHistoryItem {
+    packageId: string;
+    title: string;
+    startDate: string;
+    endDate?: string;
+    status: string;
+    totalPrice: number;
+    currency: string;
+    destinationImage?: string; // URL of the first destination's image
+    people: number;
+}
+

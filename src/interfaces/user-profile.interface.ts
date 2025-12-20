@@ -9,6 +9,7 @@ export interface IUserProfile {
     gender?: 'male' | 'female' | 'other' | string | null;
     verification_status?: string | null;
     kyc_status?: string | null;
+    is_private?: boolean;
     created_at?: string;
     updated_at?: string;
     [key: string]: any;

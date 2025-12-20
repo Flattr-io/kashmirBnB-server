@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { getDB } from '../configuration/database.config';
-import { GeneratePackageRequest, PackageGenerationResult, CabType, DayPlan, PackageLeg, PriceBucket, ActivityWithPrice } from '../interfaces/package.interface';
+import { GeneratePackageRequest, PackageGenerationResult, CabType, DayPlan, PackageLeg, PriceBucket, ActivityWithPrice, UpdatePackageConfigurationRequest, BookingHistoryItem } from '../interfaces/package.interface';
 import { AmadeusService } from './amadeus.service';
 import { WeatherService } from './weather.service';
 import { addUtcDays, toYmdUtc } from '../utils/date.util';
@@ -40,6 +40,31 @@ export class PackageService {
     }
 
     async generate(req: GeneratePackageRequest): Promise<PackageGenerationResult> {
+        // Build cache key based on request params
+        const destinationIds = (req.destinationIds || []).filter(Boolean);
+        const people = Math.max(1, Number(req.people || 1));
+        const startDate = this.resolveStartDate(req.startDate);
+        
+        // Ensure strictly ordered for cache key consistency
+        const sortedIds = [...destinationIds].sort();
+
+        const cacheKey = PackageService.buildCacheKey({ destinations: sortedIds, startDate, people, bucket: req.priceBucket });
+        
+        return await PackageService.withDedupe(cacheKey, async () => {
+            const result = await this.generatePackageContent(req);
+            
+            // Persist the generated package for future retrieval
+            try {
+                const savedId = await this.persistPackage(result, req);
+                result.packageId = savedId;
+            } catch (e: any) {
+                console.error('[PackageService] Failed to persist package:', e?.message || e);
+            }
+            return result;
+        });
+    }
+
+    private async generatePackageContent(req: GeneratePackageRequest): Promise<PackageGenerationResult> {
         const destinationIds = (req.destinationIds || []).filter(Boolean);
         if (destinationIds.length === 0) {
             throw new Error('destinationIds must be non-empty');
@@ -72,42 +97,40 @@ export class PackageService {
         }
         const people = Math.max(1, Number(req.people || 1));
 
-        const cacheKey = PackageService.buildCacheKey({ destinations: ordered, startDate, people, bucket: req.priceBucket });
-        return await PackageService.withDedupe(cacheKey, async () => {
-            // Request meta log
-            const rangeStart = toYmdUtc(new Date(startDate));
-            const rangeEnd = toYmdUtc(addUtcDays(new Date(startDate), Math.max(0, ordered.length - 1)));
-            console.log(`[PackageService] Generate meta: startDate=${rangeStart}, range=${rangeStart}..${rangeEnd}, destinations=${ordered.length}, people=${people}, bucket=${req.priceBucket}`);
+        // Request meta log
+        const rangeStart = toYmdUtc(new Date(startDate));
+        const rangeEnd = toYmdUtc(addUtcDays(new Date(startDate), Math.max(0, ordered.length - 1)));
+        console.log(`[PackageService] Generate: startDate=${rangeStart}, range=${rangeStart}..${rangeEnd}, destinations=${ordered.length}, people=${people}, bucket=${req.priceBucket}`);
 
-            const legs: PackageLeg[] = await this.buildLegs(ordered);
-            // Prepare containers
-            const amadeus = new AmadeusService();
-            const hotelSuggestionsByDay: Record<string, any[]> = {};
-            const accommodationCostsByDay: Record<string, number> = {};
+        const legs: PackageLeg[] = await this.buildLegs(ordered);
+        // Prepare containers
+        const amadeus = new AmadeusService();
+        const hotelSuggestionsByDay: Record<string, any[]> = {};
+        const accommodationCostsByDay: Record<string, number> = {};
 
-            // Restaurants top 3 by rating per destination and aligned with bucket
-            const restaurantsByDest = await this.fetchTopRestaurants(ordered, req.priceBucket);
+        // Restaurants top 3 by rating per destination and aligned with bucket
+        const restaurantsByDest = await this.fetchTopRestaurants(ordered, req.priceBucket);
 
-            // Common attractions
-            const { autoAddedAttractions, optionalAttractions } = req.includeCommonAttractions
-                ? await this.fetchAttractions(ordered)
-                : { autoAddedAttractions: {}, optionalAttractions: {} } as any;
+        // Common attractions
+        const { autoAddedAttractions, optionalAttractions } = req.includeCommonAttractions
+            ? await this.fetchAttractions(ordered)
+            : { autoAddedAttractions: {}, optionalAttractions: {} } as any;
 
-            // Weather per day
-            const weatherService = new WeatherService();
-            const days: DayPlan[] = [];
-            let activitiesTotal = 0;
-            let accommodationTotal = 0;
-            let transportDailyTotal = 0;
-            const weatherNullDays: Array<{ date: string; destinationId: string; reason: string }> = [];
-            for (let i = 0; i < ordered.length; i++) {
+        // Weather per day
+        const weatherService = new WeatherService();
+        const days: DayPlan[] = [];
+        let activitiesTotal = 0;
+        let accommodationTotal = 0;
+        let transportDailyTotal = 0;
+        const weatherNullDays: Array<{ date: string; destinationId: string; reason: string }> = [];
+        for (let i = 0; i < ordered.length; i++) {
             const id = ordered[i];
             const dayDate = addUtcDays(new Date(startDate), i);
             const dateISO = toYmdUtc(dayDate);
-                const weather = await this.fetchWeatherForDate(weatherService, id, dateISO);
-                if (weather == null) {
-                    weatherNullDays.push({ date: dateISO, destinationId: id, reason: 'outside_5_day_forecast' });
-                }
+            const weather = await this.fetchWeatherForDate(weatherService, id, dateISO);
+            if (weather == null) {
+                weatherNullDays.push({ date: dateISO, destinationId: id, reason: 'outside_5_day_forecast' });
+            }
 
             // Hotel: check-in today, check-out next day, 2 per room
             const dest = idToDestination.get(id);
@@ -237,46 +260,37 @@ export class PackageService {
             });
         }
 
-            // cab costs on legs using selected cab
-            const cabSelection = await this.selectCab(req.priceBucket, people);
-            let cabTotal = 0;
-            for (const leg of legs) {
-                const km = Number(leg.distanceKm || 0);
-                const legCost = km * Number((cabSelection as any)?.base_price_per_km || 0);
-                leg.cabCost = legCost;
-                cabTotal += legCost;
-            }
+        // cab costs on legs using selected cab
+        const cabSelection = await this.selectCab(req.priceBucket, people);
+        let cabTotal = 0;
+        for (const leg of legs) {
+            const km = Number(leg.distanceKm || 0);
+            const legCost = km * Number((cabSelection as any)?.base_price_per_km || 0);
+            leg.cabCost = legCost;
+            cabTotal += legCost;
+        }
 
-            // Available cabs for UI switching (capacity >= people, available)
-            const availableCabs = await this.fetchAvailableCabs(people);
+        // Available cabs for UI switching (capacity >= people, available)
+        const availableCabs = await this.fetchAvailableCabs(people);
 
-            const result: PackageGenerationResult = {
-                title: this.buildTitle(ordered, idToDestination),
-                startDate,
-                people: req.people,
-                cabType,
-                totalBasePrice: accommodationTotal + transportDailyTotal + activitiesTotal + cabTotal,
-                perPersonPrice: (accommodationTotal + transportDailyTotal + activitiesTotal + cabTotal) / people,
-                days,
-                legs,
-                currency: 'INR',
-                cabSelection: cabSelection ? { id: (cabSelection as any).id, type: cabType, estimatedCost: cabTotal } : { type: cabType, estimatedCost: cabTotal },
-                optionalAttractions: Object.values(optionalAttractions).flat().map((a: any) => ({ poiId: a.id, name: a.name, price: a.poi_pricing?.base_price ? Number(a.poi_pricing.base_price) : undefined })),
-                breakdown: { accommodation: accommodationTotal, transport: transportDailyTotal, activities: activitiesTotal, cab: cabTotal },
-                meta: { weatherNullDays },
-                availableCabs,
-            };
-
-            // Persist the generated package for future retrieval
-            try {
-                const savedId = await this.persistPackage(result, req);
-                result.packageId = savedId;
-            } catch (e: any) {
-                console.error('[PackageService] Failed to persist package:', e?.message || e);
-            }
-
-            return result;
-        });
+        const result: PackageGenerationResult = {
+            title: this.buildTitle(ordered, idToDestination),
+            startDate,
+            people: req.people,
+            cabType,
+            totalBasePrice: accommodationTotal + transportDailyTotal + activitiesTotal + cabTotal,
+            perPersonPrice: (accommodationTotal + transportDailyTotal + activitiesTotal + cabTotal) / people,
+            days,
+            legs,
+            currency: 'INR',
+            cabSelection: cabSelection ? { id: (cabSelection as any).id, type: cabType, estimatedCost: cabTotal } : { type: cabType, estimatedCost: cabTotal },
+            optionalAttractions: Object.values(optionalAttractions).flat().map((a: any) => ({ poiId: a.id, name: a.name, price: a.poi_pricing?.base_price ? Number(a.poi_pricing.base_price) : undefined })),
+            breakdown: { accommodation: accommodationTotal, transport: transportDailyTotal, activities: activitiesTotal, cab: cabTotal },
+            meta: { weatherNullDays },
+            availableCabs,
+        };
+        
+        return result;
     }
 
     private resolveStartDate(start?: string): string {
@@ -679,5 +693,516 @@ export class PackageService {
         }
 
         return packageId;
+    }
+
+    /**
+     * Update package configuration (Cab, Hotels) and recalculate prices
+     */
+    async updateConfiguration(packageId: string, config: UpdatePackageConfigurationRequest): Promise<PackageGenerationResult> {
+        // 1. Fetch package and verify status
+        const { data: pkg, error: pkgErr } = await this.db
+            .from('packages')
+            .select('*')
+            .eq('id', packageId)
+            .single();
+
+        if (pkgErr || !pkg) throw new Error('Package not found');
+        if (pkg.booking_status === 'booked') throw new Error('Cannot modify a booked package');
+
+        // 2. Fetch legs and days for updating
+        const { data: legs, error: legsErr } = await this.db
+            .from('package_legs')
+            .select('*')
+            .eq('package_id', packageId)
+            .order('origin_id');
+
+        const { data: days, error: daysErr } = await this.db
+            .from('package_days')
+            .select('*')
+            .eq('package_id', packageId)
+            .order('day_index', { ascending: true });
+
+        if (legsErr || daysErr) throw new Error('Failed to load package details');
+
+        let updated = false;
+
+        // 0. Handle Reschedule (Date Change) - Major Update
+        if (config.startDate) {
+            // Restore original request parameters
+            const originalReq = (pkg.request as any) || {};
+            // If request definition is missing, we can't faithfully regenerate. 
+            // Fallback to simple properties if necessary, but 'request' column is reliable in new packages.
+            
+            const regenerateReq: GeneratePackageRequest = {
+                destinationIds: originalReq.destinationIds || [],
+                people: originalReq.people || pkg.people || 1,
+                priceBucket: originalReq.priceBucket || 'optimal',
+                activities: originalReq.activities || [],
+                includeCommonAttractions: originalReq.includeCommonAttractions ?? true,
+                startDate: config.startDate, // Apply new date
+            };
+
+            console.log(`[PackageService] Rescheduling package ${packageId} to ${config.startDate}`);
+
+            // Regenerate content
+            const newContent = await this.generatePackageContent(regenerateReq);
+
+            // Re-Persist (Overwrite) Logic
+            // 1. Update Package Header
+            await this.db.from('packages').update({
+                title: newContent.title,
+                start_date: newContent.startDate,
+                people: newContent.people,
+                cab_type: newContent.cabType,
+                total_base_price: newContent.totalBasePrice,
+                per_person_price: newContent.perPersonPrice,
+                currency: newContent.currency,
+                request: regenerateReq, // update request with new date
+                breakdown: newContent.breakdown || {},
+                meta: newContent.meta || {},
+                available_cabs: newContent.availableCabs || [],
+                // Re-calculate refs
+                // We'll trust trigger/logic, or we could update activities_refs here too for completeness
+            }).eq('id', packageId);
+
+            // 2. Overwrite Legs (Delete & Insert)
+            await this.db.from('package_legs').delete().eq('package_id', packageId);
+            if (newContent.legs && newContent.legs.length) {
+                const legRows = newContent.legs.map((l) => ({
+                    package_id: packageId,
+                    origin_id: l.originId,
+                    destination_id: l.destinationId,
+                    distance_km: l.distanceKm ?? null,
+                    duration_minutes: l.durationMinutes ?? null,
+                    cab_cost: (l as any).cabCost ?? null,
+                }));
+                await this.db.from('package_legs').insert(legRows);
+            }
+
+            // 3. Overwrite Days (Delete & Insert - Cascades to activities/restaurants)
+            await this.db.from('package_days').delete().eq('package_id', packageId);
+            await this.db.from('package_destinations').delete().eq('package_id', packageId);
+
+            for (let i = 0; i < (newContent.days || []).length; i++) {
+                const d = newContent.days[i];
+                const ymd = d.date.slice(0, 10);
+                
+                // Helper to lookup weather snapshot id for a given day/destination
+                const getWeatherSnapshotId = async (destinationId: string, isoDate: string): Promise<string | null> => {
+                    const ymd = isoDate.slice(0, 10);
+                    const { data, error } = await this.db.from('weather_snapshots').select('id').eq('destination_id', destinationId).eq('snapshot_date', ymd).maybeSingle();
+                    return (data as any)?.id ?? null;
+                };
+
+                const weatherSnapshotId = d.weather ? await getWeatherSnapshotId(d.destinationId, d.date) : null;
+                
+                const { data: dayRow } = await this.db
+                    .from('package_days')
+                    .insert({
+                        package_id: packageId,
+                        day_index: i,
+                        date: ymd,
+                        title: d.title,
+                        destination_id: d.destinationId,
+                        destination_name: d.destinationName,
+                        destination_altitude_m: d.destinationAltitudeM ?? null,
+                        activities_cost: d.activitiesCost ?? null,
+                        transport_cost: d.transportCost ?? null,
+                        leg_transport_cost: d.legTransportCost ?? null,
+                        hotel: d.hotel ? (d.hotel as any) : null,
+                        hotel_options: d.hotelOptions ? (d.hotelOptions as any) : null,
+                        weather_snapshot_id: weatherSnapshotId,
+                        weather_daily: d.weather ? (d.weather as any) : null,
+                    })
+                    .select('id')
+                    .single();
+                
+                if (dayRow) {
+                    const packageDayId = (dayRow as any).id;
+                    // destinations join
+                    await this.db.from('package_destinations').insert({ package_id: packageId, day_index: i, destination_id: d.destinationId });
+                    
+                    // Activities
+                    if (d.activities && d.activities.length) {
+                        const activityRows = d.activities
+                            .filter((a) => !!a.poiId)
+                            .map((a) => ({
+                                package_day_id: packageDayId,
+                                poi_id: a.poiId,
+                                name: a.name,
+                                pricing_type: a.pricing_type,
+                                base_price: a.base_price,
+                                metadata: a.metadata,
+                            }));
+                        if (activityRows.length) await this.db.from('package_day_activities').insert(activityRows);
+                    }
+                    // Restaurants
+                    if (d.restaurantSuggestions && d.restaurantSuggestions.length) {
+                         const restaurantRows = d.restaurantSuggestions
+                            .filter((r: any) => !!r.id)
+                            .map((r: any) => ({
+                                package_day_id: packageDayId,
+                                restaurant_id: r.id,
+                                name: r.name,
+                                suggestion: r,
+                            }));
+                        if (restaurantRows.length) await this.db.from('package_day_restaurants').insert(restaurantRows);
+                    }
+                }
+            }
+            
+            // Sync refs (duplicating logic for robustness)
+            const activitiesRefs = (newContent.days || []).flatMap((d, idx) =>
+                (d.activities || []).filter((a) => !!a.poiId).map((a) => ({ day_index: idx, destination_id: d.destinationId, poi_id: a.poiId, name: a.name }))
+            );
+             const restaurantRefs = (newContent.days || []).flatMap((d, idx) =>
+                (d.restaurantSuggestions || []).filter((r: any) => !!r.id).map((r: any) => ({ day_index: idx, destination_id: d.destinationId, restaurant_id: r.id, name: r.name }))
+            );
+            await this.db.from('packages').update({ activities_refs: activitiesRefs, restaurant_refs: restaurantRefs }).eq('id', packageId);
+
+            // Since we completely regenerated, we can return early or allow further minor tweaks? 
+            // Usually valid to return here as subsequent tweaks (e.g. specific hotel swap) 
+            // would be overwritten by default logic if passed in same request, 
+            // BUT if user passed { startDate: '...', dayConfigurations: [...] }, they expect both.
+            // Complex! Let's assume for now Reschedule is a primary action. 
+            // If we want to support both, we must reload 'days/legs' variables...
+            
+            // Reload context for potential further updates
+            const { data: freshLegs } = await this.db.from('package_legs').select('*').eq('package_id', packageId).order('origin_id');
+            const { data: freshDays } = await this.db.from('package_days').select('*').eq('package_id', packageId).order('day_index', { ascending: true });
+            if (freshLegs) legs.splice(0, legs.length, ...freshLegs);
+            if (freshDays) days.splice(0, days.length, ...freshDays);
+            
+            // Update local pkg object for subsequent logic
+            pkg.available_cabs = newContent.availableCabs;
+            pkg.breakdown = newContent.breakdown;
+            pkg.people = newContent.people;
+            pkg.total_base_price = newContent.totalBasePrice;
+            pkg.cab_type = newContent.cabType;
+            updated = true;
+        }
+
+
+
+        // 3. Handle Cab Update
+        if (config.cabId) {
+            const availableCabs: any[] = pkg.available_cabs || [];
+            const selectedCab = availableCabs.find((c) => c.id === config.cabId);
+
+            if (selectedCab) {
+                // Fetch fresh cab details for pricing (base_price_per_km)
+                // We need to look up the inventory to get the per-km rate which might not be in the JSON snapshot
+                // Or we can rely on availableCabs if we trust it, but availableCabs usually only has per_day_charge?
+                // `fetchAvailableCabs` selects `per_day_charge`.
+                // `selectCab` uses `base_price_per_km`.
+                // We need `base_price_per_km` to recalc leg costs.
+                const { data: cabInventory } = await this.db
+                    .from('cab_inventory')
+                    .select('base_price_per_km')
+                    .eq('id', config.cabId)
+                    .single();
+
+                if (cabInventory) {
+                    pkg.cab_type = selectedCab.type;
+                    
+                    let newCabTotal = 0;
+                    for (const leg of legs || []) {
+                        const legCost = (Number(leg.distance_km) || 0) * Number(cabInventory.base_price_per_km);
+                        leg.cab_cost = legCost;
+                        newCabTotal += legCost;
+                        // Update leg in DB
+                        await this.db.from('package_legs').update({ cab_cost: legCost }).eq('id', leg.id);
+                    }
+                    pkg.breakdown.cab = newCabTotal;
+                    updated = true;
+                }
+            }
+        }
+
+        // 4. Handle Hotel Update
+        if (config.dayConfigurations && config.dayConfigurations.length > 0) {
+            let accommodationTotal = 0;
+
+            for (const day of days || []) {
+                const dayConfig = config.dayConfigurations.find((d) => d.dayIndex === day.day_index);
+
+                if (dayConfig && dayConfig.hotelId) {
+                    const options = day.hotel_options || [];
+                    const targetOffer = options.find((o: any) => o.hotel?.hotelId === dayConfig.hotelId);
+
+                    if (targetOffer) {
+                        const price = Number(targetOffer.offers?.[0]?.price?.total || targetOffer.offers?.[0]?.price?.base || 0);
+                        const newHotel = {
+                            name: targetOffer.hotel?.name,
+                            // Preserve extra fields if needed or take from offer
+                            currency: targetOffer.offers?.[0]?.price?.currency,
+                            price: price,
+                            checkInDate: day.hotel?.checkInDate,
+                            checkOutDate: day.hotel?.checkOutDate,
+                            roomQuantity: day.hotel?.roomQuantity,
+                            hotelId: targetOffer.hotel?.hotelId,
+                            latitude: targetOffer.hotel?.latitude,
+                            longitude: targetOffer.hotel?.longitude,
+                        };
+                        day.hotel = newHotel;
+                        // Update day in DB
+                        await this.db.from('package_days').update({ hotel: newHotel }).eq('id', day.id);
+                    }
+                }
+                // Recalculate total from current (potentially updated) hotel
+                accommodationTotal += Number(day.hotel?.price || 0);
+            }
+            pkg.breakdown.accommodation = accommodationTotal;
+            updated = true;
+        }
+
+        // 5. Handle Activities Update
+        if (config.dayConfigurations && config.dayConfigurations.length > 0) {
+            let activitiesTotal = 0;
+            const packageId = pkg.id;
+
+            for (const day of days || []) {
+                const dayConfig = config.dayConfigurations.find((d) => d.dayIndex === day.day_index);
+
+                if (dayConfig && dayConfig.activityIds !== undefined && Array.isArray(dayConfig.activityIds)) {
+                     // 5.1. Delete existing activities for this day
+                    await this.db
+                        .from('package_day_activities')
+                        .delete()
+                        .eq('package_day_id', day.id);
+
+                    // 5.2. Insert new activities
+                    const newActivities: any[] = [];
+                    let dailyActivitiesCost = 0;
+
+                    if (dayConfig.activityIds.length > 0) {
+                        const { data: pois } = await this.db
+                            .from('pois')
+                            .select('id,name,poi_pricing:poi_pricing(base_price,pricing_type,metadata)')
+                            .in('id', dayConfig.activityIds);
+                        
+                        const poiMap = new Map((pois || []).map((p: any) => [p.id, p]));
+
+                        for (const poiId of dayConfig.activityIds) {
+                            const poi = poiMap.get(poiId);
+                            if (poi) {
+                                const pricing = (poi.poi_pricing as any);
+                                const basePrice = pricing?.base_price ? Number(pricing.base_price) : 0;
+                                const pricingType = pricing?.pricing_type || 'one_time';
+                                let cost = 0;
+                                if (pricingType === 'per_person') {
+                                    cost = basePrice * Number(pkg.people || 1);
+                                } else if (pricingType !== 'free') {
+                                    cost = basePrice; // one_time, rental, etc.
+                                }
+                                
+                                dailyActivitiesCost += cost;
+
+                                newActivities.push({
+                                    package_day_id: day.id,
+                                    poi_id: poi.id,
+                                    name: poi.name,
+                                    pricing_type: pricingType,
+                                    base_price: basePrice,
+                                    metadata: pricing?.metadata
+                                });
+                            }
+                        }
+
+                        if (newActivities.length > 0) {
+                            await this.db.from('package_day_activities').insert(newActivities);
+                        }
+                    }
+
+                    // 5.3. Update day cost
+                    day.activities_cost = dailyActivitiesCost;
+                    await this.db.from('package_days').update({ activities_cost: dailyActivitiesCost }).eq('id', day.id);
+                }
+                
+                // Recalculate total loop (either updated or existing value)
+                activitiesTotal += Number(day.activities_cost || 0);
+            }
+            pkg.breakdown.activities = activitiesTotal;
+            updated = true;
+
+            // 5.4 Sync activities_refs (denormalized column)
+            const { data: allActivities } = await this.db
+                .from('package_day_activities')
+                .select('package_day_id, poi_id, name')
+                .in('package_day_id', days.map(d => d.id));
+            
+            if (allActivities) {
+                const dayIdMap = new Map(days.map(d => [d.id, d]));
+                const newRefs = allActivities.map(a => {
+                    const d = dayIdMap.get(a.package_day_id);
+                    return {
+                        day_index: d?.day_index,
+                        destination_id: d?.destination_id,
+                        poi_id: a.poi_id,
+                        name: a.name
+                    };
+                });
+                await this.db.from('packages').update({ activities_refs: newRefs }).eq('id', packageId);
+            }
+        }
+
+        if (updated) {
+            const total =
+                Number(pkg.breakdown.accommodation || 0) +
+                Number(pkg.breakdown.transport || 0) +
+                Number(pkg.breakdown.activities || 0) +
+                Number(pkg.breakdown.cab || 0);
+
+            pkg.total_base_price = total;
+            pkg.per_person_price = total / Number(pkg.people || 1);
+
+            await this.db
+                .from('packages')
+                .update({
+                    cab_type: pkg.cab_type,
+                    breakdown: pkg.breakdown,
+                    total_base_price: pkg.total_base_price,
+                    per_person_price: pkg.per_person_price,
+                })
+                .eq('id', packageId);
+        }
+
+        // Return fresh full object
+        return this.getById(packageId);
+    }
+
+
+    async getUserBookings(userId: string, limit: number = 5): Promise<BookingHistoryItem[]> {
+        // 1. Fetch user's packages
+        const { data: packages, error } = await this.db
+            .from('packages')
+            .select(`
+                id, 
+                title, 
+                start_date, 
+                people, 
+                total_base_price, 
+                currency, 
+                booking_status, 
+                destination_ids,
+                package_days(id)
+            `)
+            .eq('user_id', userId)
+            .not('booking_status', 'is', null) // Ensure meaningful status
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (error) throw new Error(`Failed to fetch bookings: ${error.message}`);
+        if (!packages || packages.length === 0) return [];
+
+        // 2. Fetch destination images (batch)
+        const firstDestinationIds = packages
+            .map((p) => (p.destination_ids && p.destination_ids.length > 0 ? p.destination_ids[0] : null))
+            .filter(Boolean) as string[];
+
+        const uniqueDestIds = Array.from(new Set(firstDestinationIds));
+        const destImageMap = new Map<string, string>();
+
+        if (uniqueDestIds.length > 0) {
+            const { data: dests } = await this.db
+                .from('vw_destinations_public') // Use public view as in generate
+                .select('id, images')
+                .in('id', uniqueDestIds);
+            
+            dests?.forEach((d: any) => {
+                if (d.images && Array.isArray(d.images) && d.images.length > 0) {
+                    destImageMap.set(d.id, d.images[0]);
+                }
+            });
+        }
+
+        // 3. Map to BookingHistoryItem
+        return packages.map((pkg: any) => {
+             // Calculate end date rough estimate based on package_days count or just return start_date relative
+             // Let's infer duration from package_days count
+             const duration = pkg.package_days ? pkg.package_days.length : 1; 
+             const start = new Date(pkg.start_date);
+             const end = addUtcDays(start, duration - 1); // 4 days means start + 3
+
+             return {
+                 packageId: pkg.id,
+                 title: pkg.title,
+                 startDate: pkg.start_date,
+                 endDate: end.toISOString(),
+                 status: pkg.booking_status,
+                 totalPrice: pkg.total_base_price,
+                 currency: pkg.currency || 'INR',
+                 people: pkg.people,
+                 destinationImage: pkg.destination_ids && pkg.destination_ids.length > 0 ? destImageMap.get(pkg.destination_ids[0]) : undefined
+             };
+        });
+    }
+
+    async getById(packageId: string): Promise<PackageGenerationResult> {
+        const { data: pkg, error } = await this.db
+            .from('packages')
+            .select(`
+                *,
+                package_legs(*),
+                package_days(
+                    *,
+                    package_day_activities(*),
+                    package_day_restaurants(*)
+                )
+            `)
+            .eq('id', packageId)
+            .single();
+
+        if (error || !pkg) throw new Error('Package not found');
+
+        const days: DayPlan[] = (pkg.package_days || [])
+            .map((pd: any) => ({
+                date: pd.date,
+                title: pd.title,
+                destinationId: pd.destination_id,
+                destinationName: pd.destination_name,
+                destinationAltitudeM: pd.destination_altitude_m,
+                activities: (pd.package_day_activities || []).map((a: any) => ({
+                    poiId: a.poi_id,
+                    name: a.name,
+                    pricing_type: a.pricing_type,
+                    base_price: a.base_price,
+                    metadata: a.metadata,
+                })),
+                activitiesCost: pd.activities_cost,
+                hotel: pd.hotel,
+                hotelOptions: pd.hotel_options,
+                restaurantSuggestions: (pd.package_day_restaurants || []).map((r: any) => r.suggestion),
+                transportCost: pd.transport_cost,
+                legTransportCost: pd.leg_transport_cost,
+                weather: pd.weather_daily,
+            }))
+            .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+        const legs: PackageLeg[] = (pkg.package_legs || []).map((pl: any) => ({
+            originId: pl.origin_id,
+            destinationId: pl.destination_id,
+            distanceKm: pl.distance_km,
+            durationMinutes: pl.duration_minutes,
+            cabCost: pl.cab_cost,
+        }));
+
+        return {
+            packageId: pkg.id,
+            title: pkg.title,
+            startDate: pkg.start_date,
+            people: pkg.people,
+            cabType: pkg.cab_type,
+            totalBasePrice: pkg.total_base_price,
+            perPersonPrice: pkg.per_person_price,
+            currency: pkg.currency,
+            days,
+            legs,
+            cabSelection: { type: pkg.cab_type, estimatedCost: pkg.breakdown?.cab },
+            availableCabs: pkg.available_cabs,
+            meta: pkg.meta,
+            breakdown: pkg.breakdown,
+            optionalAttractions: [], // Omitted
+        };
     }
 }

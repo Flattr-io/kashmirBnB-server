@@ -55,6 +55,40 @@ const options: swaggerJSDoc.Options = {
                     },
                     required: ['destinationIds', 'people', 'priceBucket']
                 },
+                BookingHistoryItem: {
+                    type: 'object',
+                    properties: {
+                        packageId: { type: 'string', format: 'uuid' },
+                        title: { type: 'string' },
+                        startDate: { type: 'string', format: 'date-time' },
+                        endDate: { type: 'string', format: 'date-time' },
+                        status: { type: 'string' },
+                        totalPrice: { type: 'number' },
+                        currency: { type: 'string' },
+                        destinationImage: { type: 'string', format: 'uri', nullable: true },
+                        people: { type: 'integer' }
+                    },
+                    required: ['packageId', 'title', 'startDate', 'status', 'totalPrice', 'currency', 'people']
+                },
+                UpdatePackageConfigurationRequest: {
+                    type: 'object',
+                    properties: {
+                        startDate: { type: 'string', format: 'date-time', description: 'New start date to reschedule the package. Triggers a full regeneration.' },
+                        cabId: { type: 'string', format: 'uuid', description: 'ID of the selected cab from availableCabs list' },
+                        dayConfigurations: {
+                            type: 'array',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    dayIndex: { type: 'integer', description: 'Zero-based index of the day' },
+                                    hotelId: { type: 'string', description: 'ID of the selected hotel option' },
+                                    activityIds: { type: 'array', items: { type: 'string' }, description: 'List of POI IDs to replace current activities' }
+                                },
+                                required: ['dayIndex']
+                            }
+                        }
+                    }
+                },
                 PackageLeg: {
                     type: 'object',
                     properties: {
@@ -294,6 +328,39 @@ const options: swaggerJSDoc.Options = {
                         },
                     },
                     required: ['id', 'name', 'email'],
+                },
+                UserProfile: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        full_name: { type: 'string' },
+                        email: { type: 'string', format: 'email' },
+                        phone: { type: 'string' },
+                        avatar_url: { type: 'string', format: 'uri' },
+                        bio: { type: 'string' },
+                        dob: { type: 'string', format: 'date' },
+                        gender: { type: 'string', enum: ['male', 'female', 'other', 'prefer_not_to_say'] },
+                        verification_status: { type: 'string', enum: ['unverified', 'pending', 'verified', 'rejected'] },
+                        kyc_status: { type: 'string', enum: ['pending', 'verified', 'rejected'] },
+                        online_status: { type: 'string', enum: ['online', 'offline', 'away', 'busy'] },
+                        is_private: { type: 'boolean' },
+                        created_at: { type: 'string', format: 'date-time' },
+                        updated_at: { type: 'string', format: 'date-time' }
+                    }
+                },
+                PublicProfile: {
+                    type: 'object',
+                    properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        full_name: { type: 'string' },
+                        avatar_url: { type: 'string', format: 'uri' },
+                        bio: { type: 'string', description: 'Hidden if private' },
+                        location: { type: 'string', description: 'Hidden if private' },
+                        verification_status: { type: 'string', description: 'Hidden if private' },
+                        kyc_status: { type: 'string', description: 'Hidden if private' },
+                        online_status: { type: 'string' },
+                        is_private: { type: 'boolean' }
+                    }
                 },
                 CreateUserRequest: {
                     type: 'object',

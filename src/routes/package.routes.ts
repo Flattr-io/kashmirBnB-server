@@ -2,6 +2,7 @@ import { Request, Response, Router } from 'express';
 import { PackageService } from '../services/package.service';
 import { startOfDayUtc } from '../utils/date.util';
 import { optionalAuthMiddleware } from '../middlewares/optional-auth.middleware';
+import { authMiddleware } from '../middlewares/auth.middleware';
 import { getDB } from '../configuration/database.config';
 
 const router = Router();
@@ -135,10 +136,14 @@ router.post('/generate', async (req: Request, res: Response) => {
  *     summary: Attempt to book a generated package
  *     description: |
  *       Initiates the booking flow for a previously generated package.
- *       - If unauthenticated, the package booking_status becomes `awaiting_auth` and the API returns 401 to trigger login.
- *       - If authenticated but not phone/verification complete, booking_status becomes `awaiting_verification` and the API returns 403.
- *       - If verification complete but KYC incomplete, booking_status becomes `pending_kyc` and the API returns 202.
- *       - If fully verified and KYC complete, booking_status becomes `booked` and the API returns 200.
+ *       Optionally accepts configuration updates (cab, hotels, activities, date) to apply before booking.
+ *       
+ *       - If configuration is provided, the package is updated first.
+ *       - Then, the booking logic matches the user and updates status.
+ *       - If unauthenticated, `booking_status` -> `awaiting_auth` (401).
+ *       - If authenticated but unverified, `booking_status` -> `awaiting_verification` (403).
+ *       - If verified but no KYC, `booking_status` -> `pending_kyc` (202).
+ *       - If fully verified, `booking_status` -> `booked` (200).
  *     tags:
  *       - Packages
  *     parameters:
@@ -148,32 +153,45 @@ router.post('/generate', async (req: Request, res: Response) => {
  *         schema:
  *           type: string
  *           format: uuid
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UpdatePackageConfigurationRequest'
  *     responses:
  *       200:
  *         description: Booking confirmed
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 packageId:
- *                   type: string
- *                   format: uuid
- *                 booking_status:
- *                   type: string
- *                   example: "booked"
  *       202:
- *         description: KYC required to finalize booking
+ *         description: KYC required
  *       401:
  *         description: Authentication required
  *       403:
- *         description: Verification required (phone or verification_status)
+ *         description: Verification required
  *       404:
  *         description: Package not found
+ *       500:
+ *         description: Server error
  */
 router.post('/:packageId/book', [optionalAuthMiddleware], async (req: Request, res: Response) => {
     const { packageId } = req.params;
+    const { cabId, dayConfigurations } = req.body || {};
     const db = getDB();
+
+    // 1. If configuration updates are provided, apply them first
+    if (cabId || (dayConfigurations && Array.isArray(dayConfigurations) && dayConfigurations.length > 0)) {
+        try {
+            await service.updateConfiguration(packageId, { cabId, dayConfigurations });
+        } catch (error: any) {
+            if (error.message?.includes('booked')) {
+                return res.status(409).json({ error: 'Cannot update configuration: Package is already booked' });
+            } else if (error.message?.includes('not found')) {
+                return res.status(404).json({ error: 'Package not found during update' });
+            }
+            // Log warning but maybe proceed? Or fail? Better to fail if explicit update requested.
+            return res.status(400).json({ error: 'Failed to apply configuration updates', details: error.message });
+        }
+    }
 
     const { data: pkg, error } = await db
         .from('packages')
@@ -242,6 +260,161 @@ router.post('/:packageId/book', [optionalAuthMiddleware], async (req: Request, r
     return res.json({ packageId, booking_status: 'booked' });
 });
 
+
+/**
+ * @swagger
+ * /packages/{packageId}:
+ *   get:
+ *     summary: Get package details
+ *     description: Retrieve full details of a specific package. Requires authentication and ownership.
+ *     tags:
+ *       - Packages
+ *     parameters:
+ *       - in: path
+ *         name: packageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Package details retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PackageGenerationResult'
+ *       403:
+ *         description: Forbidden (Not owned by user)
+ *       404:
+ *         description: Package not found
+ *       500:
+ *         description: Server error
+ */
+router.get('/:packageId', authMiddleware, async (req: Request, res: Response) => {
+    const { packageId } = req.params;
+    const user = (req as any).user;
+    const db = getDB();
+
+    try {
+        // 1. Check ownership
+        const { data: pkg, error } = await db
+            .from('packages')
+            .select('user_id')
+            .eq('id', packageId)
+            .maybeSingle();
+
+        if (error) return res.status(500).json({ error: error.message });
+        if (!pkg) return res.status(404).json({ error: 'Package not found' });
+
+        if (pkg.user_id !== user.id) {
+            return res.status(403).json({ error: 'Access denied: You do not own this package' });
+        }
+
+        // 2. Fetch full details
+        const result = await service.getById(packageId);
+        res.json(result);
+    } catch (error: any) {
+        if (error.message === 'Package not found') {
+            return res.status(404).json({ error: error.message });
+        }
+        res.status(500).json({ error: error.message || 'Failed to retrieve package' });
+    }
+});
+
+/**
+ * @swagger
+ * /packages/{packageId}:
+ *   patch:
+ *     summary: Update package configuration (Cab, Hotels)
+ *     description: |
+ *       Update specific configurations of a generated package before booking.
+ *       Supports changing Cab, Hotels, Activities, or **Rescheduling** (via `startDate`).
+ *       Note: Changing `startDate` will regenerate the entire itinerary (prices, weather, availability).
+ *     tags:
+ *       - Packages
+ *     parameters:
+ *       - in: path
+ *         name: packageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UpdatePackageConfigurationRequest'
+ *     responses:
+ *       200:
+ *         description: Package updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PackageGenerationResult'
+ *       400:
+ *         description: Bad Request
+ *       403:
+ *         description: Forbidden (booked package)
+ *       500:
+ *         description: Internal Server Error
+ */
+router.patch('/:packageId', [optionalAuthMiddleware], async (req: Request, res: Response) => {
+    const { packageId } = req.params;
+    const body = req.body;
+    try {
+        const result = await service.updateConfiguration(packageId, body);
+        res.json(result);
+    } catch (error: any) {
+        if (error.message?.includes('booked')) {
+            res.status(403).json({ error: error.message });
+        } else if (error.message?.includes('not found')) {
+            res.status(404).json({ error: error.message });
+        } else {
+            res.status(500).json({ error: error.message || 'Failed to update package' });
+        }
+    }
+});
+
+
+/**
+ * @swagger
+ * /packages/history:
+ *   get:
+ *     summary: Get user's booking history
+ *     description: Retrieve recent bookings (default 5) for the authenticated user with essential metadata for UI cards.
+ *     tags:
+ *       - Packages
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of user bookings
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/BookingHistoryItem'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/history', authMiddleware, async (req: Request, res: Response) => {
+    try {
+        const user = (req as any).user;
+        const result = await service.getUserBookings(user.id);
+        res.json(result);
+    } catch (error: any) {
+        res.status(500).json({ error: error.message || 'Failed to fetch booking history' });
+    }
+});
+
 export default router;
+
+
 
 

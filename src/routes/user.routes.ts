@@ -77,8 +77,13 @@ router.get('/me/profile', [authMiddleware], async (req: Request, res: Response) 
  *                 example: female
  *               online_status:
  *                 type: string
+ *               online_status:
+ *                 type: string
  *                 enum: [online, offline, away, busy]
  *                 example: online
+ *               is_private:
+ *                 type: boolean
+ *                 example: false
  *     responses:
  *       200:
  *         description: Profile updated successfully
@@ -154,6 +159,57 @@ router.get('/', [authMiddleware, requireRoles('admin')], async (req: Request, re
  */
 router.post('/', [authMiddleware], async (req: Request, res: Response, next: NextFunction) => {
     return next(createError(405, 'Method Not Allowed'));
+});
+
+/**
+ * @swagger
+ * /users/{userId}/preview:
+ *   get:
+ *     summary: Get user public profile
+ *     description: Returns the public profile of a user. If private, limited info is returned.
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The ID of the user
+ *     responses:
+ *       200:
+ *         description: Public profile object
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id: { type: string }
+ *                 full_name: { type: string }
+ *                 avatar_url: { type: string }
+ *                 bio: { type: string }
+ *                 location: { type: string }
+ *                 verification_status: { type: string }
+ *                 kyc_status: { type: string }
+ *                 online_status: { type: string }
+ *                 is_private: { type: boolean }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: User not found
+ */
+router.get('/:userId/preview', [authMiddleware], async (req: Request, res: Response) => {
+    try {
+        const profile = await userService.getPublicProfile(req.params.userId);
+        res.send(profile);
+    } catch (error: any) {
+        if (error.statusCode === 404 || error.message?.includes('not found')) {
+            return res.status(404).json({ error: error.message });
+        }
+        res.status(500).json({ error: error.message });
+    }
 });
 
 /**

@@ -95,7 +95,45 @@ export class UserService {
             gender: data.gender ?? null,
         };
 
-        return normalizedProfile;
+    return normalizedProfile;
+    }
+
+    /**
+     * @desc Get public profile for a user (limited fields)
+     */
+    async getPublicProfile(userId: string): Promise<Partial<IUserProfile>> {
+        const { data, error } = await this.db
+            .from('user_profiles')
+            .select('id, full_name, avatar_url, bio, location, verification_status, kyc_status, online_status, created_at, is_private')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (error) throw new Error(error.message);
+        if (!data) throw new NotFoundError(`Profile for user ${userId} not found.`);
+
+        // If private, return minimal info
+        if (data.is_private) {
+            return {
+                id: data.id,
+                full_name: data.full_name,
+                avatar_url: data.avatar_url,
+                is_private: true,
+                online_status: data.online_status ?? 'offline',
+                // Explicitly exclude bio, location, verification details
+            };
+        }
+
+        return {
+            ...data,
+            verification_status: data.verification_status ?? 'unverified',
+            // kyc_verified status concept: user asked for "show ... kyc_verified ... if the user is kyc verified"
+            // I'll return the raw kyc_status as well since UI can derive boolean, but wait, request said: 
+            // "we need to show two statuses... eg we use kyc_verified and verification_status"
+            // I will return both raw status and maybe a boolean if helper needed, but standard JSON usually takes raw.
+            // Let's return raw `kyc_status` as planned.
+            kyc_status: data.kyc_status ?? 'pending',
+            online_status: data.online_status ?? 'offline',
+        };
     }
 
     /**
@@ -117,6 +155,7 @@ export class UserService {
         verification_status?: 'unverified' | 'pending' | 'verified' | 'rejected';
         verification_documents?: any;
         is_active?: boolean;
+        is_private?: boolean;
         online_status?: 'online' | 'offline' | 'away' | 'busy';
     }): Promise<IUserProfile> {
         const { userId, ...payload } = params;
@@ -132,6 +171,11 @@ export class UserService {
                     `Invalid verification_status. Must be one of: ${validStatuses.join(', ')}`
                 );
             }
+        }
+        
+        // Validate is_private if provided
+        if (payload.is_private !== undefined && typeof payload.is_private !== 'boolean') {
+             throw new BadRequestError('is_private must be a boolean');
         }
 
         // Validate gender if provided
