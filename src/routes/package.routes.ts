@@ -298,17 +298,17 @@ router.get('/:packageId', authMiddleware, async (req: Request, res: Response) =>
     const db = getDB();
 
     try {
-        // 1. Check ownership
+        // 1. Check ownership or public access
         const { data: pkg, error } = await db
             .from('packages')
-            .select('user_id')
+            .select('user_id, is_public')
             .eq('id', packageId)
             .maybeSingle();
 
         if (error) return res.status(500).json({ error: error.message });
         if (!pkg) return res.status(404).json({ error: 'Package not found' });
 
-        if (pkg.user_id !== user.id) {
+        if (pkg.user_id !== user.id && !pkg.is_public) {
             return res.status(403).json({ error: 'Access denied: You do not own this package' });
         }
 
@@ -319,7 +319,87 @@ router.get('/:packageId', authMiddleware, async (req: Request, res: Response) =>
         if (error.message === 'Package not found') {
             return res.status(404).json({ error: error.message });
         }
-        res.status(500).json({ error: error.message || 'Failed to retrieve package' });
+        return res.status(500).json({ error: error.message || 'Failed to fetch package' });
+    }
+});
+
+/**
+ * @swagger
+ * /packages/{packageId}/clone:
+ *   post:
+ *     summary: Clone a package
+ *     description: Creates a new package based on an existing one with a new start date. The source package must be owned by the user or be public.
+ *     tags:
+ *       - Packages
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: packageId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID of the package to clone
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               startDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: New start date for the cloned package
+ *             required:
+ *               - startDate
+ *     responses:
+ *       201:
+ *         description: Package cloned successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PackageGenerationResult'
+ *       403:
+ *         description: Access denied (source package is private and not owned by user)
+ *       404:
+ *         description: Source package not found
+ *       500:
+ *         description: Server error
+ */
+router.post('/:packageId/clone', authMiddleware, async (req: Request, res: Response) => {
+    const { packageId } = req.params;
+    const { startDate } = req.body;
+    const user = (req as any).user;
+    const db = getDB();
+
+    if (!startDate) {
+        return res.status(400).json({ error: 'startDate is required' });
+    }
+
+    try {
+        // 1. Verify access (Public or Owner)
+        const { data: pkg, error } = await db
+            .from('packages')
+            .select('user_id, is_public')
+            .eq('id', packageId)
+            .maybeSingle();
+
+        if (error) return res.status(500).json({ error: error.message });
+        if (!pkg) return res.status(404).json({ error: 'Package not found' });
+
+        if (pkg.user_id !== user.id && !pkg.is_public) {
+            return res.status(403).json({ error: 'Access denied: Source package is private' });
+        }
+
+        // 2. Clone package
+        const result = await service.clonePackage(packageId, startDate);
+        res.status(201).json(result);
+    } catch (error: any) {
+        if (error.message?.includes('not found')) {
+            return res.status(404).json({ error: error.message });
+        }
+        res.status(500).json({ error: error.message || 'Failed to clone package' });
     }
 });
 

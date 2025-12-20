@@ -75,6 +75,7 @@ const options: swaggerJSDoc.Options = {
                     properties: {
                         startDate: { type: 'string', format: 'date-time', description: 'New start date to reschedule the package. Triggers a full regeneration.' },
                         cabId: { type: 'string', format: 'uuid', description: 'ID of the selected cab from availableCabs list' },
+                        is_public: { type: 'boolean', description: 'Make package public for sharing' },
                         dayConfigurations: {
                             type: 'array',
                             items: {
@@ -199,7 +200,14 @@ const options: swaggerJSDoc.Options = {
                             },
                             description: 'Cost breakdown by category'
                         },
-                        availableCabs: { type: 'array', items: { $ref: '#/components/schemas/AvailableCab' }, nullable: true, description: 'All available cab options for UI switching' },
+                        is_public: { type: 'boolean', description: 'Visibility status of the package' },
+                        stats: {
+                            type: 'object',
+                            properties: {
+                                clonedCount: { type: 'integer', description: 'Number of times this package has been cloned' },
+                                isPopular: { type: 'boolean', description: 'Whether the package is considered popular' }
+                            }
+                        },
                         meta: {
                             type: 'object',
                             properties: {

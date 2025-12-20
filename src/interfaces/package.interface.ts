@@ -5,6 +5,7 @@ export interface GeneratePackageRequest {
     activities?: string[];
     startDate?: string; // ISO; default now + 3 days
     includeCommonAttractions?: boolean;
+    clonedFrom?: string;
 }
 
 export type PriceBucket = 'budget_conscious' | 'optimal' | 'go_crazy';
@@ -97,14 +98,21 @@ export interface PackageGenerationResult {
     breakdown?: { accommodation: number; transport: number; activities: number; cab: number };
     meta?: {
         weatherNullDays?: Array<{ date: string; destinationId: string; reason: string }>;
+        clonedFrom?: string;
     };
     availableCabs?: AvailableCab[];
+    is_public?: boolean;
+    stats?: {
+        clonedCount: number;
+        isPopular: boolean;
+    };
 }
 
 
 export interface UpdatePackageConfigurationRequest {
     startDate?: string; // Optional new start date for rescheduling
     cabId?: string;
+    is_public?: boolean;
     dayConfigurations?: Array<{
         dayIndex: number;
         hotelId?: string;

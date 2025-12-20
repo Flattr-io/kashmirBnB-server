@@ -574,7 +574,10 @@ export class PackageService {
                     startDate: req.startDate,
                 },
                 breakdown: pkg.breakdown || {},
-                meta: pkg.meta || {},
+                meta: {
+                    ...(pkg.meta || {}),
+                    ...(req.clonedFrom ? { clonedFrom: req.clonedFrom } : {})
+                },
                 available_cabs: pkg.availableCabs || [],
                 destination_ids: destinationIds,
                 activities_refs: activitiesRefs,
@@ -699,6 +702,8 @@ export class PackageService {
      * Update package configuration (Cab, Hotels) and recalculate prices
      */
     async updateConfiguration(packageId: string, config: UpdatePackageConfigurationRequest): Promise<PackageGenerationResult> {
+        const { startDate, cabId, dayConfigurations, is_public } = config;
+
         // 1. Fetch package and verify status
         const { data: pkg, error: pkgErr } = await this.db
             .from('packages')
@@ -708,6 +713,29 @@ export class PackageService {
 
         if (pkgErr || !pkg) throw new Error('Package not found');
         if (pkg.booking_status === 'booked') throw new Error('Cannot modify a booked package');
+
+        // Handle simple is_public update if no other structural changes are requested
+        if (is_public !== undefined && !startDate && !cabId && (!dayConfigurations || dayConfigurations.length === 0)) {
+            const { error: updateErr } = await this.db
+                .from('packages')
+                .update({ is_public })
+                .eq('id', packageId);
+            
+            if (updateErr) throw new Error(updateErr.message);
+            
+            // Return updated structure
+            const updated = await this.getById(packageId);
+            return updated;
+        }
+
+        // If structural changes (startDate) cause regeneration, ensure is_public update is also applied if present.
+        if (is_public !== undefined) {
+             const { error: pubErr } = await this.db
+                .from('packages')
+                .update({ is_public })
+                .eq('id', packageId);
+             if (pubErr) throw new Error(pubErr.message);
+        }
 
         // 2. Fetch legs and days for updating
         const { data: legs, error: legsErr } = await this.db
@@ -1072,6 +1100,38 @@ export class PackageService {
     }
 
 
+    /**
+     * Clone an existing package with a new start date
+     */
+    async clonePackage(sourcePackageId: string, cloneDate: string): Promise<PackageGenerationResult> {
+        // 1. Fetch source package
+        const { data: pkg, error } = await this.db
+            .from('packages')
+            .select('*')
+            .eq('id', sourcePackageId)
+            .single();
+
+        if (error || !pkg) throw new Error('Source package not found');
+
+        // 2. Access control is handled in controller, but here we just need the data.
+        // The controller should verify if user can access this package (is_public or owner).
+        
+        // 3. Construct new generation request
+        const originalReq = (pkg.request as any) || {};
+        const newReq: GeneratePackageRequest = {
+            destinationIds: originalReq.destinationIds || [],
+            people: originalReq.people || pkg.people || 1,
+            priceBucket: originalReq.priceBucket || 'optimal',
+            activities: originalReq.activities || [],
+            includeCommonAttractions: originalReq.includeCommonAttractions ?? true,
+            startDate: cloneDate,
+            clonedFrom: sourcePackageId,
+        };
+
+        // 4. Generate new package (this handles persistence)
+        return this.generate(newReq);
+    }
+
     async getUserBookings(userId: string, limit: number = 5): Promise<BookingHistoryItem[]> {
         // 1. Fetch user's packages
         const { data: packages, error } = await this.db
@@ -1187,6 +1247,16 @@ export class PackageService {
             cabCost: pl.cab_cost,
         }));
 
+        // Calculate clone stats
+        // Note: Querying JSONB for count might be slow on large datasets without an index.
+        const { count, error: countErr } = await this.db
+             .from('packages')
+             .select('id', { count: 'exact', head: true })
+             .eq('meta->>clonedFrom', packageId);
+
+        const clonedCount = count || 0;
+        const isPopular = clonedCount >= 5; // Threshold for popularity
+
         return {
             packageId: pkg.id,
             title: pkg.title,
@@ -1203,6 +1273,11 @@ export class PackageService {
             meta: pkg.meta,
             breakdown: pkg.breakdown,
             optionalAttractions: [], // Omitted
+            is_public: pkg.is_public,
+            stats: {
+                clonedCount,
+                isPopular
+            }
         };
     }
 }
