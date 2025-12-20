@@ -289,4 +289,54 @@ router.get('/by-destination', async (req: Request, res: Response) => {
     }
 });
 
+/**
+ * @swagger
+ * /pois/stats:
+ *   post:
+ *     summary: Get POI visit counts
+ *     description: Retrieve the number of times specified POIs have been included in booked packages.
+ *     tags:
+ *       - POIs
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - poiIds
+ *             properties:
+ *               poiIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: List of POI IDs to fetch stats for
+ *     responses:
+ *       200:
+ *         description: Map of POI ID to visit count
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               additionalProperties:
+ *                 type: integer
+ *               example:
+ *                 "POI_123": 45
+ *                 "POI_456": 12
+ *       500:
+ *         description: Internal server error
+ */
+router.post('/stats', async (req: Request, res: Response) => {
+    try {
+        const { poiIds } = req.body;
+        if (!Array.isArray(poiIds)) {
+            return res.status(400).json({ error: 'poiIds must be an array of strings' });
+        }
+        const stats = await poiService.getPoiVisitCounts(poiIds);
+        res.json(stats);
+    } catch (error: any) {
+        res.status(500).json({ error: 'Failed to fetch POI stats', message: error.message });
+    }
+});
+
 export default router;

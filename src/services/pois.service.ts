@@ -122,6 +122,50 @@ export class PoiService {
         return data as unknown as IPOI[];
     }
 
+    /**
+     * @desc Get visit counts for specific POIs based on booked packages
+     */
+    async getPoiVisitCounts(poiIds: string[]): Promise<Record<string, number>> {
+        if (!poiIds || poiIds.length === 0) return {};
+
+        // Fetch all activity entries that match the POI list and belong to BOOKED packages
+        // Chain: package_day_activities -> package_days -> packages (filter status=booked)
+        const { data, error } = await this.db
+            .from('package_day_activities')
+            .select(`
+                poi_id,
+                package_days!inner(
+                    packages!inner(booking_status)
+                )
+            `)
+            .in('poi_id', poiIds)
+            .eq('package_days.packages.booking_status', 'booked');
+
+        if (error) {
+            console.error('[PoiService] Failed to fetch stats:', error.message);
+            throw new Error('Failed to fetch POI stats');
+        }
+
+        // Aggregate in memory
+        const counts: Record<string, number> = {};
+        
+        // Initialize 0 for requested IDs
+        poiIds.forEach(id => counts[id] = 0);
+
+        (data || []).forEach((row: any) => {
+            if (row.poi_id) {
+                // Double check status just in case (though inner join filters it)
+                // The Type assertion might be needed depending on generated types, but runtime check is safe
+                const status = row.package_days?.packages?.booking_status;
+                if (status === 'booked') {
+                    counts[row.poi_id] = (counts[row.poi_id] || 0) + 1;
+                }
+            }
+        });
+
+        return counts;
+    }
+
     // ---------------------
     // PRIVATE UTILITIES
     // ---------------------
