@@ -12,6 +12,19 @@ export interface IGeoJSONPolygon {
 }
 
 /**
+ * Destination video metadata
+ * Videos are stored in Supabase Storage (destination-videos bucket)
+ * Format: MP4 (H.264), recommended: 1080p max, 30-60 seconds, <10MB
+ */
+export interface IDestinationVideo {
+    url: string; // Public URL to the video file in Supabase Storage
+    thumbnail?: string; // Optional: URL to video thumbnail image
+    duration?: number; // Optional: Duration in seconds
+    format?: string; // Optional: Video format (default: 'mp4')
+    title?: string; // Optional: Video title/description
+}
+
+/**
  * Destination entity (read model aligned to DB)
  */
 export interface IDestination {
@@ -26,9 +39,17 @@ export interface IDestination {
     center_lng: number;
 
     // Extensibility
-    metadata?: Record<string, any>;
+    metadata?: Record<string, any> & {
+        images?: string[]; // Array of image URLs
+        videos?: IDestinationVideo[]; // Array of video metadata (accessible via metadata->videos)
+        elevation?: string; // Optional: Elevation information (e.g., "2730m")
+        description?: string; // Optional: Destination description
+        best_time_to_visit?: string; // Optional: Best time to visit information
+    };
     base_price?: number;
     altitude_m?: number;
+    // View fields (from vw_destinations_public)
+    images?: string[]; // Extracted from metadata->images
 
     // Auditing
     created_by?: string | null;

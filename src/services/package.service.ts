@@ -1148,7 +1148,6 @@ export class PackageService {
                 package_days(id)
             `)
             .eq('user_id', userId)
-            .not('booking_status', 'is', null) // Ensure meaningful status
             .order('created_at', { ascending: false })
             .limit(limit);
 
