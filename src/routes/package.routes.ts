@@ -24,6 +24,7 @@ const service = new PackageService();
  *       - Calculates transport costs between destinations
  *       - Provides available cab options for UI switching
  *       - Supports date regeneration via startDate parameter
+ *       - If user is authenticated, the package is automatically associated with their user_id
  *       
  *       **Weather Data:**
  *       - Weather data is fetched from Tomorrow.io API
@@ -32,6 +33,8 @@ const service = new PackageService();
  *       - Check `meta.weatherNullDays` for dates with missing weather
  *     tags:
  *       - Packages
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -106,7 +109,7 @@ const service = new PackageService();
  *                     - "startDate must not be in the past (UTC)"
  *                     - "people must be a positive number"
  */
-router.post('/generate', async (req: Request, res: Response) => {
+router.post('/generate', [optionalAuthMiddleware], async (req: Request, res: Response) => {
     const { destinationIds, people, priceBucket, activities, includeCommonAttractions, startDate } = req.body || {};
 
     const errors: string[] = [];
@@ -125,7 +128,10 @@ router.post('/generate', async (req: Request, res: Response) => {
 
     if (errors.length) return res.status(400).json({ error: 'Bad Request', details: errors });
 
-    const result = await service.generate({ destinationIds, people: Number(people), priceBucket, activities, includeCommonAttractions, startDate });
+    const user = (req as any).user as { id: string } | undefined;
+    const userId = user?.id || undefined;
+
+    const result = await service.generate({ destinationIds, people: Number(people), priceBucket, activities, includeCommonAttractions, startDate }, userId);
     res.json(result);
 });
 
@@ -392,8 +398,8 @@ router.post('/:packageId/clone', authMiddleware, async (req: Request, res: Respo
             return res.status(403).json({ error: 'Access denied: Source package is private' });
         }
 
-        // 2. Clone package
-        const result = await service.clonePackage(packageId, startDate);
+        // 2. Clone package (user is authenticated, so pass user.id)
+        const result = await service.clonePackage(packageId, startDate, user.id);
         res.status(201).json(result);
     } catch (error: any) {
         if (error.message?.includes('not found')) {

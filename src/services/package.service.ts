@@ -39,7 +39,7 @@ export class PackageService {
         return getDB();
     }
 
-    async generate(req: GeneratePackageRequest): Promise<PackageGenerationResult> {
+    async generate(req: GeneratePackageRequest, userId?: string): Promise<PackageGenerationResult> {
         // Build cache key based on request params
         const destinationIds = (req.destinationIds || []).filter(Boolean);
         const people = Math.max(1, Number(req.people || 1));
@@ -55,7 +55,7 @@ export class PackageService {
             
             // Persist the generated package for future retrieval
             try {
-                const savedId = await this.persistPackage(result, req);
+                const savedId = await this.persistPackage(result, req, userId);
                 result.packageId = savedId;
             } catch (e: any) {
                 console.error('[PackageService] Failed to persist package:', e?.message || e);
@@ -530,7 +530,7 @@ export class PackageService {
     /**
      * Persist the generated package in normalized tables with FKs to original entities.
      */
-    private async persistPackage(pkg: PackageGenerationResult, req: GeneratePackageRequest): Promise<string> {
+    private async persistPackage(pkg: PackageGenerationResult, req: GeneratePackageRequest, userId?: string): Promise<string> {
         // Build denormalized references from the generated response
         const destinationIds = Array.from(new Set((pkg.days || []).map((d) => d.destinationId)));
         const activitiesRefs = (pkg.days || []).flatMap((d, idx) =>
@@ -565,6 +565,7 @@ export class PackageService {
                 total_base_price: pkg.totalBasePrice,
                 per_person_price: pkg.perPersonPrice,
                 currency: pkg.currency,
+                user_id: userId || null, // Save user_id if user is authenticated (even if not verified)
                 request: {
                     destinationIds: req.destinationIds,
                     people: req.people,
@@ -1103,7 +1104,7 @@ export class PackageService {
     /**
      * Clone an existing package with a new start date
      */
-    async clonePackage(sourcePackageId: string, cloneDate: string): Promise<PackageGenerationResult> {
+    async clonePackage(sourcePackageId: string, cloneDate: string, userId?: string): Promise<PackageGenerationResult> {
         // 1. Fetch source package
         const { data: pkg, error } = await this.db
             .from('packages')
@@ -1129,7 +1130,8 @@ export class PackageService {
         };
 
         // 4. Generate new package (this handles persistence)
-        return this.generate(newReq);
+        // Use userId from parameter (cloning user) or fallback to source package user_id
+        return this.generate(newReq, userId || (pkg as any).user_id || undefined);
     }
 
     async getUserBookings(userId: string, limit: number = 5): Promise<BookingHistoryItem[]> {
