@@ -10,6 +10,7 @@ import poiRatingRoutes from '../routes/poi-rating.routes';
 import poiWishlistRoutes from '../routes/poi.wishlist.routes';
 import chatRoutes from '../routes/chat.routes';
 import packageRoutes from '../routes/package.routes';
+import documentRoutes from '../routes/document.routes';
 import { getDB } from './database.config';
 
 // Health check throttling: cache DB status to avoid frequent queries
@@ -18,7 +19,6 @@ let lastHealthCheckAt = 0;
 let lastDatabaseStatus: { status: 'pass' | 'fail'; error?: string } | null = null;
 
 export const init = (app: Express) => {
-
     /**
      * @swagger
      * /api/health:
@@ -170,10 +170,7 @@ export const init = (app: Express) => {
 
             if (shouldCheckDb) {
                 const db = getDB();
-                const { error } = await db
-                    .from('destinations')
-                    .select('id')
-                    .limit(1);
+                const { error } = await db.from('destinations').select('id').limit(1);
 
                 if (error) {
                     lastDatabaseStatus = { status: 'fail', error: error.message };
@@ -194,9 +191,9 @@ export const init = (app: Express) => {
                     responseTime: Date.now() - startTime,
                     memory: {
                         used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-                        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024)
-                    }
-                }
+                        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+                    },
+                },
             });
         } catch (error: any) {
             res.status(503).json({
@@ -205,8 +202,8 @@ export const init = (app: Express) => {
                 service: 'revam-bnb-api',
                 checks: {
                     database: { status: 'fail', error: error.message },
-                    uptime: process.uptime()
-                }
+                    uptime: process.uptime(),
+                },
             });
         }
     });
@@ -221,4 +218,5 @@ export const init = (app: Express) => {
     app.use('/api/poi-wishlist', poiWishlistRoutes);
     app.use('/api/chat', chatRoutes);
     app.use('/api/packages', packageRoutes);
+    app.use('/api/documents', documentRoutes);
 };

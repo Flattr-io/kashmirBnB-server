@@ -39,6 +39,8 @@
     "homepage": "https://github.com/Flattr-io/kashmirBnB-server#readme",
     "dependencies": {
         "@hyperflake/http-errors": "^1.0.0",
+        "@aws-sdk/client-s3": "^3.515.0",
+        "@aws-sdk/s3-request-presigner": "^3.515.0",
         "@supabase/supabase-js": "^2.57.4",
         "@types/jsonwebtoken": "^9.0.10",
         "amadeus": "^11.0.0",
