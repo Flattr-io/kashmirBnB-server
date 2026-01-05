@@ -1,6 +1,6 @@
 -- User documents stored in S3 with verification status
 CREATE TABLE IF NOT EXISTS user_documents (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   storage_key TEXT NOT NULL,
   url TEXT NOT NULL,
