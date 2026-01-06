@@ -1,15 +1,16 @@
-import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { BadRequestError } from '@hyperflake/http-errors';
 import { getDB } from '../configuration/database.config';
-import { DocumentStatus, SignedUploadUrl, UserDocument } from '../interfaces/document.interface';
+import { DocumentStatus, SignedUploadUrl, UserDocument, UserDocumentWithUrl } from '../interfaces/document.interface';
 
 export class DocumentService {
     private s3: S3Client;
     private bucket: string;
     private region: string;
     private uploadUrlTtl: number;
+    private downloadUrlTtl: number;
     private publicBaseUrl: string;
 
     private get db(): SupabaseClient {
@@ -22,6 +23,9 @@ export class DocumentService {
         const accessKeyId = process.env.AWS_ACCESS_KEY_ID || '';
         const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || '';
         this.uploadUrlTtl = Number(process.env.AWS_S3_UPLOAD_TTL_SECONDS || 900);
+        this.downloadUrlTtl = Number(
+            process.env.AWS_S3_DOWNLOAD_TTL_SECONDS || process.env.AWS_S3_UPLOAD_TTL_SECONDS || 900
+        );
 
         if (!this.bucket || !this.region || !accessKeyId || !secretAccessKey) {
             throw new BadRequestError(
@@ -54,6 +58,19 @@ export class DocumentService {
 
     private buildPublicUrl(objectKey: string): string {
         return `${this.publicBaseUrl}/${objectKey}`;
+    }
+
+    private async buildDownloadUrl(objectKey: string): Promise<string> {
+        if (!objectKey) {
+            throw new BadRequestError('Missing object key for download URL generation');
+        }
+
+        const command = new GetObjectCommand({
+            Bucket: this.bucket,
+            Key: objectKey,
+        });
+
+        return getSignedUrl(this.s3, command, { expiresIn: this.downloadUrlTtl });
     }
 
     async generateUploadUrl(params: {
@@ -157,7 +174,7 @@ export class DocumentService {
         }
     }
 
-    async getDocumentsForUser(userId: string): Promise<UserDocument[]> {
+    async getDocumentsForUser(userId: string): Promise<UserDocumentWithUrl[]> {
         const { data, error } = await this.db
             .from('user_documents')
             .select('*')
@@ -168,6 +185,15 @@ export class DocumentService {
             throw new BadRequestError(error.message);
         }
 
-        return (data || []) as UserDocument[];
+        const documents = (data || []) as UserDocument[];
+
+        const documentsWithUrls = await Promise.all(
+            documents.map(async (doc) => {
+                const downloadUrl = await this.buildDownloadUrl(doc.storage_key);
+                return { ...doc, downloadUrl } as UserDocumentWithUrl;
+            })
+        );
+
+        return documentsWithUrls;
     }
 }

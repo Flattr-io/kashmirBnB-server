@@ -15,6 +15,10 @@ export interface UserDocument {
     updated_at: string;
 }
 
+export interface UserDocumentWithUrl extends UserDocument {
+    downloadUrl: string;
+}
+
 export interface SignedUploadUrl {
     uploadUrl: string;
     objectKey: string;

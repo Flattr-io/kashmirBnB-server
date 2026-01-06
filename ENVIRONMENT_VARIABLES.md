@@ -33,7 +33,8 @@
 | `AWS_ACCESS_KEY_ID`             | AWS access key with PutObject/HeadObject on the bucket   | _none_                                       | ✅       |
 | `AWS_SECRET_ACCESS_KEY`         | AWS secret key                                           | _none_                                       | ✅       |
 | `AWS_S3_PUBLIC_BASE_URL`        | Optional public base URL or CDN domain for reading files | `https://<bucket>.s3.<region>.amazonaws.com` | ⭕       |
-| `AWS_S3_UPLOAD_TTL_SECONDS`     | Signed URL expiration in seconds                         | `900`                                        | ⭕       |
+| `AWS_S3_UPLOAD_TTL_SECONDS`     | Signed PUT URL expiration in seconds                     | `900`                                        | ⭕       |
+| `AWS_S3_DOWNLOAD_TTL_SECONDS`   | Signed GET URL expiration in seconds                     | `900`                                        | ⭕       |
 
 ### CORS Configuration
 
