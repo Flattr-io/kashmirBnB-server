@@ -77,8 +77,6 @@ router.get('/me/profile', [authMiddleware], async (req: Request, res: Response) 
  *                 example: female
  *               online_status:
  *                 type: string
- *               online_status:
- *                 type: string
  *                 enum: [online, offline, away, busy]
  *                 example: online
  *               is_private:

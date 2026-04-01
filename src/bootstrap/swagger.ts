@@ -16,6 +16,23 @@ const getServerConfig = () => {
     return [{ url: `http://localhost:${port}/api`, description: 'Local server' }];
 };
 
+/** Supabase project origin for OpenAPI examples (Storage public URLs). Uses `SUPABASE_URL`, or `SUPABASE_PROJECT_REF` (e.g. aiadwsqzilkbuoesmeig). */
+const supabaseOriginForDocs = (() => {
+    const raw = process.env.SUPABASE_URL?.trim();
+    if (raw) {
+        try {
+            return new URL(raw).origin;
+        } catch {
+            /* fall through */
+        }
+    }
+    const ref = process.env.SUPABASE_PROJECT_REF?.trim();
+    if (ref) {
+        return `https://${ref}.supabase.co`;
+    }
+    return 'https://your-project.supabase.co';
+})();
+
 const options: swaggerJSDoc.Options = {
     definition: {
         openapi: '3.0.0',
@@ -560,6 +577,106 @@ const options: swaggerJSDoc.Options = {
                     },
                     required: ['type', 'coordinates'],
                 },
+                DestinationVideo: {
+                    type: 'object',
+                    description:
+                        'Video entry for a destination. Files live in Supabase Storage (e.g. destination-videos / destination_vids); `url` may be a public object URL or a time-limited signed URL.',
+                    properties: {
+                        url: {
+                            type: 'string',
+                            format: 'uri',
+                            description: 'URL to the video file (e.g. MP4 in Supabase Storage)',
+                            example: `${supabaseOriginForDocs}/storage/v1/object/public/destination_vids/srinagar-gfty.mp4`,
+                        },
+                        thumbnail: {
+                            type: 'string',
+                            format: 'uri',
+                            description: 'Optional poster / thumbnail image URL',
+                            example: `${supabaseOriginForDocs}/storage/v1/object/public/destination_vids/srinagar_thumb.png`,
+                        },
+                        duration: {
+                            type: 'number',
+                            format: 'float',
+                            description: 'Duration in seconds',
+                            example: 45,
+                        },
+                        format: {
+                            type: 'string',
+                            description: 'Container/codec hint (e.g. mp4)',
+                            example: 'mp4',
+                        },
+                        title: {
+                            type: 'string',
+                            description: 'Human-readable title',
+                            example: 'Srinagar Experience',
+                        },
+                    },
+                    required: ['url'],
+                },
+                DestinationMetadata: {
+                    type: 'object',
+                    description:
+                        'Extended JSON stored in `destinations.metadata`. Image and video URLs typically point to CDN or Supabase Storage; video URLs may be signed and expire.',
+                    additionalProperties: true,
+                    properties: {
+                        images: {
+                            type: 'array',
+                            description: 'Gallery image URLs (often portrait + landscape sizes)',
+                            items: {
+                                type: 'string',
+                                format: 'uri',
+                            },
+                            example: [
+                                'https://placehold.co/600x800/4A90E2/FFFFFF?text=Gulmarg',
+                                'https://placehold.co/800x600/50C878/FFFFFF?text=Gulmarg',
+                                'https://placehold.co/800x600/FF6B6B/FFFFFF?text=Gulmarg',
+                            ],
+                        },
+                        videos: {
+                            type: 'array',
+                            description: 'Promotional or hero videos for the destination',
+                            items: {
+                                $ref: '#/components/schemas/DestinationVideo',
+                            },
+                        },
+                        elevation: {
+                            type: 'string',
+                            description: 'Elevation label (display)',
+                            example: '2730m',
+                        },
+                        description: {
+                            type: 'string',
+                            description: 'Long-form destination description',
+                            example:
+                                'Famous ski destination and meadow of flowers, home to one of the highest cable cars in the world.',
+                        },
+                        best_time_to_visit: {
+                            type: 'string',
+                            description: 'Seasonal or timing guidance for visitors',
+                            example: 'December to March (skiing), May to September (summer)',
+                        },
+                    },
+                    example: {
+                        images: [
+                            'https://placehold.co/600x800/4A90E2/FFFFFF?text=Gulmarg',
+                            'https://placehold.co/800x600/50C878/FFFFFF?text=Gulmarg',
+                            'https://placehold.co/800x600/FF6B6B/FFFFFF?text=Gulmarg',
+                        ],
+                        videos: [
+                            {
+                                url: `${supabaseOriginForDocs}/storage/v1/object/public/destination_vids/srinagar-gfty.mp4`,
+                                title: 'Srinagar Experience',
+                                format: 'mp4',
+                                duration: 45,
+                                thumbnail: `${supabaseOriginForDocs}/storage/v1/object/public/destination_vids/srinagar_thumb.png`,
+                            },
+                        ],
+                        elevation: '2730m',
+                        description:
+                            'Famous ski destination and meadow of flowers, home to one of the highest cable cars in the world.',
+                        best_time_to_visit: 'December to March (skiing), May to September (summer)',
+                    },
+                },
                 Destination: {
                     type: 'object',
                     properties: {
@@ -598,13 +715,10 @@ const options: swaggerJSDoc.Options = {
                             example: 74.7973,
                         },
                         metadata: {
-                            type: 'object',
-                            description: 'Additional destination metadata',
-                            example: {
-                                population: 1200000,
-                                elevation: 1585,
-                                timezone: 'Asia/Kolkata',
-                            },
+                            allOf: [{ $ref: '#/components/schemas/DestinationMetadata' }],
+                            nullable: true,
+                            description:
+                                'Gallery images, videos, copy, and visit hints. Persisted as JSON on the destination row.',
                         },
                         base_price: {
                             type: 'number',
@@ -659,13 +773,9 @@ const options: swaggerJSDoc.Options = {
                             $ref: '#/components/schemas/GeoJSONPoint',
                         },
                         metadata: {
-                            type: 'object',
-                            description: 'Additional destination metadata',
-                            example: {
-                                population: 1200000,
-                                elevation: 1585,
-                                timezone: 'Asia/Kolkata',
-                            },
+                            allOf: [{ $ref: '#/components/schemas/DestinationMetadata' }],
+                            description:
+                                'Optional extended metadata (images, videos, description, etc.). Same shape as returned on GET.',
                         },
                         base_price: {
                             type: 'number',

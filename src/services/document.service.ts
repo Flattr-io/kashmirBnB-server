@@ -6,7 +6,9 @@ import { getDB } from '../configuration/database.config';
 import { DocumentStatus, SignedUploadUrl, UserDocument, UserDocumentWithUrl } from '../interfaces/document.interface';
 
 export class DocumentService {
-    private s3: S3Client;
+    private s3: S3Client | null = null;
+    /** When false, upload/confirm/presigned download are unavailable; list uses stored `url` only. */
+    private readonly s3Enabled: boolean;
     private bucket: string;
     private region: string;
     private uploadUrlTtl: number;
@@ -27,22 +29,40 @@ export class DocumentService {
             process.env.AWS_S3_DOWNLOAD_TTL_SECONDS || process.env.AWS_S3_UPLOAD_TTL_SECONDS || 900
         );
 
-        if (!this.bucket || !this.region || !accessKeyId || !secretAccessKey) {
-            throw new BadRequestError(
-                'Missing AWS S3 configuration. Set AWS_S3_BUCKET, AWS_REGION (or AWS_S3_REGION), AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY.'
-            );
-        }
+        const disabledByEnv = ['true', '1', 'yes'].includes(
+            (process.env.AWS_S3_DISABLED || '').toLowerCase().trim()
+        );
+        const placeholderCreds =
+            accessKeyId === 'changeme' ||
+            secretAccessKey === 'changeme' ||
+            this.bucket === 'your-bucket-name';
+
+        const hasAll = Boolean(this.bucket && this.region && accessKeyId && secretAccessKey);
+        this.s3Enabled = !disabledByEnv && hasAll && !placeholderCreds;
 
         this.publicBaseUrl =
-            process.env.AWS_S3_PUBLIC_BASE_URL || `https://${this.bucket}.s3.${this.region}.amazonaws.com`;
+            process.env.AWS_S3_PUBLIC_BASE_URL ||
+            (this.bucket && this.region
+                ? `https://${this.bucket}.s3.${this.region}.amazonaws.com`
+                : '');
 
-        this.s3 = new S3Client({
-            region: this.region,
-            credentials: {
-                accessKeyId,
-                secretAccessKey,
-            },
-        });
+        if (this.s3Enabled) {
+            this.s3 = new S3Client({
+                region: this.region,
+                credentials: {
+                    accessKeyId,
+                    secretAccessKey,
+                },
+            });
+        }
+    }
+
+    private ensureS3(): void {
+        if (!this.s3Enabled || !this.s3) {
+            throw new BadRequestError(
+                'Document storage (S3) is not active. Use real AWS credentials (not placeholders), or set AWS_S3_DISABLED=true to run without S3. Upload and presigned URLs require a configured bucket.'
+            );
+        }
     }
 
     private sanitizeFileName(fileName: string): string {
@@ -61,6 +81,7 @@ export class DocumentService {
     }
 
     private async buildDownloadUrl(objectKey: string): Promise<string> {
+        this.ensureS3();
         if (!objectKey) {
             throw new BadRequestError('Missing object key for download URL generation');
         }
@@ -70,7 +91,7 @@ export class DocumentService {
             Key: objectKey,
         });
 
-        return getSignedUrl(this.s3, command, { expiresIn: this.downloadUrlTtl });
+        return getSignedUrl(this.s3!, command, { expiresIn: this.downloadUrlTtl });
     }
 
     async generateUploadUrl(params: {
@@ -85,6 +106,8 @@ export class DocumentService {
             throw new BadRequestError('fileName and contentType are required');
         }
 
+        this.ensureS3();
+
         const objectKey = this.buildObjectKey(userId, fileName);
         const putCommand = new PutObjectCommand({
             Bucket: this.bucket,
@@ -96,7 +119,7 @@ export class DocumentService {
             },
         });
 
-        const uploadUrl = await getSignedUrl(this.s3, putCommand, { expiresIn: this.uploadUrlTtl });
+        const uploadUrl = await getSignedUrl(this.s3!, putCommand, { expiresIn: this.uploadUrlTtl });
 
         return {
             uploadUrl,
@@ -125,8 +148,10 @@ export class DocumentService {
             throw new BadRequestError('objectKey is required to confirm upload');
         }
 
+        this.ensureS3();
+
         try {
-            const head = await this.s3.send(
+            const head = await this.s3!.send(
                 new HeadObjectCommand({
                     Bucket: this.bucket,
                     Key: objectKey,
@@ -189,7 +214,10 @@ export class DocumentService {
 
         const documentsWithUrls = await Promise.all(
             documents.map(async (doc) => {
-                const downloadUrl = await this.buildDownloadUrl(doc.storage_key);
+                const downloadUrl =
+                    this.s3Enabled && this.s3
+                        ? await this.buildDownloadUrl(doc.storage_key)
+                        : doc.url;
                 return { ...doc, downloadUrl } as UserDocumentWithUrl;
             })
         );
