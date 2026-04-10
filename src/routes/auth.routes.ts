@@ -3,11 +3,39 @@ import { AuthService } from '../services/auth.service';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { PhoneVerificationService } from '../services/phone-verification.service';
 import { UserService } from '../services/user.service';
+import { ChatService } from '../services/chat.service';
+import { formatProfileFullName } from '../constants/user-profile.schema';
 
 const router = Router();
 const authService = new AuthService();
 const userService = new UserService();
 const phoneVerificationService = new PhoneVerificationService();
+const chatService = new ChatService();
+
+/**
+ * @swagger
+ * /auth/phone-email/config:
+ *   get:
+ *     summary: Public Phone.Email client config for WebView / web
+ *     description: |
+ *       Returns the Phone.Email **Client ID** from env (`PHONE_EMAIL_CLIENT_ID`). This is safe to embed in mobile/web clients
+ *       (same idea as an OAuth client id). **Do not** put `PHONE_VERIFICATION_API_KEY` in the app — it stays server-only for JWT verification
+ *       and optional backend fetches of `user_json_url`.
+ *     tags:
+ *       - Auth
+ *     responses:
+ *       200:
+ *         description: Provider metadata and client id when configured
+ */
+router.get('/phone-email/config', (_req: Request, res: Response) => {
+    res.json({
+        provider: 'phone.email',
+        clientId: process.env.PHONE_EMAIL_CLIENT_ID || null,
+        docsUrl: 'https://www.phone.email/docs-sign-in-with-phone',
+        message:
+            'Use clientId for the Phone.Email button in WebView. Server holds PHONE_VERIFICATION_API_KEY; call sync or verify endpoints after OTP.',
+    });
+});
 
 /**
  * @swagger
@@ -346,13 +374,103 @@ router.post('/google-id-token', async (req: Request, res: Response) => {
 
 /**
  * @swagger
+ * /auth/phone-email/sync-profile:
+ *   post:
+ *     summary: Sync profile from Phone.Email `user_json_url` (post–OTP success)
+ *     description: |
+ *       Backend-driven step from [Phone.Email docs](https://www.phone.email/docs-sign-in-with-phone): after the WebView
+ *       returns `user_json_url` to your app, POST it here with the user's Supabase Bearer token. The server GETs the JSON
+ *       (host allowlisted), reads `user_country_code`, `user_phone_number`, `user_first_name`, `user_last_name`, and upserts profile.
+ *       Optional `full_name` in the body overrides the combined first + last name.
+ *     tags:
+ *       - Auth
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - user_json_url
+ *             properties:
+ *               user_json_url:
+ *                 type: string
+ *                 format: uri
+ *                 description: URL from Phone.Email phoneEmailListener (e.g. https://user.phone.email/user_….json)
+ *               full_name:
+ *                 type: string
+ *                 description: Optional override for display name
+ *     responses:
+ *       200:
+ *         description: Profile updated
+ *       400:
+ *         description: Invalid URL, fetch failure, or duplicate phone
+ *       401:
+ *         description: Unauthorized
+ */
+router.post('/phone-email/sync-profile', [authMiddleware], async (req: Request, res: Response) => {
+    const authUser = (req as any)?.user;
+    if (!authUser?.id) {
+        res.status(401).json({
+            error: 'Unauthorized',
+            message: 'User context missing',
+            statusCode: 401,
+        });
+        return;
+    }
+
+    const user_json_url = req.body?.user_json_url;
+    if (!user_json_url || typeof user_json_url !== 'string') {
+        res.status(400).json({
+            error: 'Bad Request',
+            message: 'user_json_url is required in the request body',
+            statusCode: 400,
+        });
+        return;
+    }
+
+    try {
+        const verified = await phoneVerificationService.fetchVerifiedUserFromPhoneEmailJson(user_json_url);
+        const explicit =
+            typeof req.body?.full_name === 'string' && req.body.full_name.trim() !== '' ? req.body.full_name : undefined;
+        const full_name = formatProfileFullName({
+            explicitFullName: explicit,
+            firstName: verified.first_name,
+            lastName: verified.last_name,
+        });
+
+        const profile = await userService.upsertProfileFromVerifiedPhone({
+            userId: authUser.id,
+            phone: verified.phone,
+            full_name,
+        });
+        await chatService.ensureUserHasUsername(authUser.id);
+
+        res.send({
+            message: 'Profile synced from Phone.Email verification JSON',
+            profile,
+        });
+    } catch (error: any) {
+        res.status(error.statusCode || 500).json({
+            error: error.name || 'Internal Server Error',
+            message: error.message || 'An unexpected error occurred',
+            statusCode: error.statusCode || 500,
+        });
+    }
+});
+
+/**
+ * @swagger
  * /auth/verify-phone:
  *   post:
  *     summary: Verify a user's phone number using a signed token
  *     description: |
  *       Accepts a JWT issued by the phone verification provider. The backend validates the signature
  *       with `PHONE_VERIFICATION_API_KEY` and, when successful, persists the phone number in the user's profile
- *       while marking `verification_status` as `verified`.
+ *       while marking `verification_status` as `verified`. If the JWT includes `user_first_name` / `user_last_name` (or aliases),
+ *       those are merged into `full_name` unless you pass `full_name` in the body.
  *     tags:
  *       - Auth
  *     security:
@@ -398,25 +516,135 @@ router.post('/verify-phone', [authMiddleware], async (req: Request, res: Respons
         });
         return;
     }
-    const { phoneToken } = req.body;
+    const phoneToken = req.body?.phoneToken ?? req.body?.token;
     if (!phoneToken || typeof phoneToken !== 'string') {
         res.status(400).json({
             error: 'Bad Request',
-            message: 'token is required in the request body',
+            message: 'phoneToken or token is required in the request body',
             statusCode: 400,
         });
         return;
     }
     try {
-        const { phone } = phoneVerificationService.verifyPhoneToken(phoneToken);
-        const profile = await userService.updateProfile({
+        const { phone, first_name, last_name } = phoneVerificationService.verifyPhoneToken(phoneToken);
+        const explicit =
+            typeof req.body?.full_name === 'string' && req.body.full_name.trim() !== '' ? req.body.full_name : undefined;
+        const full_name = formatProfileFullName({
+            explicitFullName: explicit,
+            firstName: first_name,
+            lastName: last_name,
+        });
+        const profile = await userService.upsertProfileFromVerifiedPhone({
             userId: authUser.id,
             phone,
-            verification_status: 'verified',
+            full_name,
         });
+        await chatService.ensureUserHasUsername(authUser.id);
 
         res.send({
             message: 'Phone number verified successfully',
+            profile,
+        });
+    } catch (error: any) {
+        res.status(error.statusCode || 500).json({
+            error: error.name || 'Internal Server Error',
+            message: error.message || 'An unexpected error occurred',
+            statusCode: error.statusCode || 500,
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /auth/profile/phone:
+ *   post:
+ *     summary: Create or update profile using a verified phone (OTP / webview flow)
+ *     description: |
+ *       For users who sign in with phone via Supabase (e.g. webview OTP): after the backend-driven verification
+ *       provider returns a signed `phoneToken` (JWT), call this with the Supabase session bearer token to persist
+ *       the phone on `users` / `user_profiles`, set `verification_status` to `verified`, and optionally set `full_name`.
+ *       Same user logging in again can call repeatedly (idempotent). If the phone is already tied to another account,
+ *       returns 400. When the Auth user has a phone, it must match the JWT (digits), so the same number used in-app is required.
+ *       JWT may include first/last name claims (`user_first_name` / `user_last_name`); optional body `full_name` overrides.
+ *     tags:
+ *       - Auth
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phoneToken
+ *             properties:
+ *               phoneToken:
+ *                 type: string
+ *                 description: Signed JWT from the phone verification service (alias `token`)
+ *               token:
+ *                 type: string
+ *                 description: Alias for phoneToken
+ *               full_name:
+ *                 type: string
+ *                 description: Display name (optional; defaults to existing profile name or "User")
+ *     responses:
+ *       200:
+ *         description: Profile saved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 profile:
+ *                   $ref: '#/components/schemas/UserProfile'
+ *       400:
+ *         description: Missing token, duplicate phone, or phone mismatch
+ *       401:
+ *         description: Unauthorized or invalid verification token
+ */
+router.post('/profile/phone', [authMiddleware], async (req: Request, res: Response) => {
+    const authUser = (req as any)?.user;
+    if (!authUser?.id) {
+        res.status(401).json({
+            error: 'Unauthorized',
+            message: 'User context missing',
+            statusCode: 401,
+        });
+        return;
+    }
+
+    const phoneToken = req.body?.phoneToken ?? req.body?.token;
+    if (!phoneToken || typeof phoneToken !== 'string') {
+        res.status(400).json({
+            error: 'Bad Request',
+            message: 'phoneToken or token is required in the request body',
+            statusCode: 400,
+        });
+        return;
+    }
+
+    const rawName = req.body?.full_name;
+    const full_name = typeof rawName === 'string' ? rawName : undefined;
+
+    try {
+        const { phone, first_name, last_name } = phoneVerificationService.verifyPhoneToken(phoneToken);
+        const resolvedFullName = formatProfileFullName({
+            explicitFullName: full_name,
+            firstName: first_name,
+            lastName: last_name,
+        });
+        const profile = await userService.upsertProfileFromVerifiedPhone({
+            userId: authUser.id,
+            phone,
+            full_name: resolvedFullName,
+        });
+        await chatService.ensureUserHasUsername(authUser.id);
+
+        res.send({
+            message: 'Profile saved with verified phone',
             profile,
         });
     } catch (error: any) {

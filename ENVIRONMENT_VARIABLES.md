@@ -22,7 +22,9 @@
 | ---------------------------- | --------------------------------------------- | -------- |
 | `TOMORROW_API_KEY`           | Tomorrow.io weather API key                   | ✅       |
 | `MAPBOX_API_KEY`             | Mapbox geocoding API key                      | ✅       |
-| `PHONE_VERIFICATION_API_KEY` | Secret used to verify phone verification JWTs | ✅       |
+| `PHONE_VERIFICATION_API_KEY` | **Server-only** — Phone.Email dashboard API key to verify HS256 JWTs ([docs](https://www.phone.email/docs-sign-in-with-phone)). Never embed in mobile/web. | ⭕ |
+| `PHONE_EMAIL_CLIENT_ID`      | **Public** — Client id from Phone.Email Admin Dashboard for the embedded “Sign in with Phone” / WebView button. Exposed to clients via `GET /api/auth/phone-email/config`. | ⭕ |
+| `PHONE_EMAIL_ALLOWED_JSON_HOSTS` | Comma-separated hostnames allowed when fetching `user_json_url` (default: `user.phone.email`). Prevents SSRF. | ⭕ |
 
 ### AWS / S3 (Document Uploads)
 
@@ -60,7 +62,7 @@
 | `SESSION_SECRET`                 | Session secret                                  | `your_session_secret_here` | Sessions           |
 | `PHONE_VERIFICATION_ISSUER`      | Expected issuer for phone verification JWTs     | _unset_                    | Phone verification |
 | `PHONE_VERIFICATION_AUDIENCE`    | Expected audience for phone verification JWTs   | _unset_                    | Phone verification |
-| `PHONE_VERIFICATION_PHONE_CLAIM` | Custom claim key that contains the phone number | _unset_                    | Phone verification |
+| `PHONE_VERIFICATION_PHONE_CLAIM` | _(Legacy / unused in current code; phone is read from standard Phone.Email claims.)_ | _unset_ | — |
 
 ### Logging & Debugging
 

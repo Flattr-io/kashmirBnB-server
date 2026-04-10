@@ -3,6 +3,7 @@ import { IUser } from '../interfaces/user.interface';
 import { IUserProfile } from '../interfaces/user-profile.interface';
 import { BadRequestError, NotFoundError } from '@hyperflake/http-errors';
 import { getDB } from '../configuration/database.config';
+import { USER_FULL_NAME_MAX_LEN, USER_PHONE_MAX_LEN } from '../constants/user-profile.schema';
 
 export class UserService {
     // Always fetch DB lazily
@@ -194,9 +195,20 @@ export class UserService {
             }
         }
 
-        // Validate phone length if provided
-        if (payload.phone !== undefined && payload.phone !== null && payload.phone.length > 15) {
-            throw new BadRequestError('Phone number must be 15 characters or less');
+        // Validate phone length if provided (DB: VARCHAR(32), E.164-friendly)
+        if (
+            payload.phone !== undefined &&
+            payload.phone !== null &&
+            payload.phone.length > USER_PHONE_MAX_LEN
+        ) {
+            throw new BadRequestError(`Phone number must be ${USER_PHONE_MAX_LEN} characters or less`);
+        }
+
+        if (payload.full_name !== undefined && payload.full_name !== null) {
+            const n = String(payload.full_name).trim();
+            if (n.length > USER_FULL_NAME_MAX_LEN) {
+                throw new BadRequestError(`full_name must be ${USER_FULL_NAME_MAX_LEN} characters or less`);
+            }
         }
 
         // Check for duplicate phone number if phone is being updated
@@ -270,9 +282,133 @@ export class UserService {
         return normalizedProfile;
     }
 
+    /**
+     * Create or update profile using a phone number already proven by the phone-verification JWT
+     * (backend-driven OTP / webview flow). Idempotent for the same user + phone; enforces unique phone on `users`.
+     * When Supabase Auth has a phone on the session, it must match the verified number (digits comparison).
+     */
+    async upsertProfileFromVerifiedPhone(params: {
+        userId: string;
+        phone: string;
+        full_name?: string;
+    }): Promise<IUserProfile> {
+        const { userId, phone, full_name } = params;
+        const normalizedPhone = phone.trim();
+        if (!normalizedPhone) {
+            throw new BadRequestError('Phone number is required');
+        }
+        if (normalizedPhone.length > USER_PHONE_MAX_LEN) {
+            throw new BadRequestError(`Phone number must be ${USER_PHONE_MAX_LEN} characters or less`);
+        }
+
+        await this.assertVerifiedPhoneMatchesAuthSessionIfApplicable(userId, normalizedPhone);
+
+        const { data: existingOther, error: dupLookupError } = await this.db
+            .from('users')
+            .select('id')
+            .eq('phone', normalizedPhone)
+            .neq('id', userId)
+            .maybeSingle();
+
+        if (dupLookupError) throw new Error(dupLookupError.message);
+        if (existingOther) {
+            throw new BadRequestError('This phone number is already registered to another account');
+        }
+
+        const { data: existingProfile } = await this.db
+            .from('user_profiles')
+            .select('full_name')
+            .eq('id', userId)
+            .maybeSingle();
+
+        const resolvedFullName =
+            full_name !== undefined && full_name.trim() !== ''
+                ? full_name.trim()
+                : existingProfile?.full_name?.trim() || 'User';
+
+        if (resolvedFullName.length > USER_FULL_NAME_MAX_LEN) {
+            throw new BadRequestError(`full_name must be ${USER_FULL_NAME_MAX_LEN} characters or less`);
+        }
+
+        const { error: usersErr } = await this.db
+            .from('users')
+            .upsert({ id: userId, phone: normalizedPhone }, { onConflict: 'id' });
+
+        if (usersErr) {
+            if (
+                usersErr.code === '23505' ||
+                usersErr.message?.includes('duplicate key') ||
+                usersErr.message?.includes('unique constraint')
+            ) {
+                throw new BadRequestError('This phone number is already registered to another account');
+            }
+            throw new Error(usersErr.message);
+        }
+
+        const { data, error } = await this.db
+            .from('user_profiles')
+            .upsert(
+                {
+                    id: userId,
+                    full_name: resolvedFullName,
+                    phone: normalizedPhone,
+                    verification_status: 'verified',
+                },
+                { onConflict: 'id' }
+            )
+            .select()
+            .single();
+
+        if (error) {
+            if (
+                error.code === '23505' ||
+                error.message?.includes('duplicate key') ||
+                error.message?.includes('unique constraint')
+            ) {
+                throw new BadRequestError('This phone number is already registered to another account');
+            }
+            throw new Error(error.message);
+        }
+        if (!data) throw new NotFoundError(`Profile for user ${userId} could not be saved.`);
+
+        return this.normalizeProfileRow(data);
+    }
+
     // ---------------------
     // PRIVATE UTILITIES
     // ---------------------
+    private normalizeProfileRow(data: Record<string, unknown>): IUserProfile {
+        return {
+            ...data,
+            verification_status: (data.verification_status as string) ?? 'unverified',
+            kyc_status: (data.kyc_status as string) ?? 'pending',
+            dob: (data.dob as string) ?? null,
+            gender: (data.gender as string) ?? null,
+        } as IUserProfile;
+    }
+
+    /** If Auth user has a phone, the verified JWT phone must match (same device / webview OTP flow). */
+    private async assertVerifiedPhoneMatchesAuthSessionIfApplicable(
+        userId: string,
+        verifiedPhone: string
+    ): Promise<void> {
+        const { data, error } = await this.db.auth.admin.getUserById(userId);
+        if (error || !data?.user) {
+            return;
+        }
+        const sessionPhone = data.user.phone;
+        if (!sessionPhone || typeof sessionPhone !== 'string') {
+            return;
+        }
+        const dSession = sessionPhone.replace(/\D/g, '');
+        const dVerified = verifiedPhone.replace(/\D/g, '');
+        if (dSession.length >= 10 && dVerified.length >= 10 && dSession !== dVerified) {
+            throw new BadRequestError(
+                'Verified phone does not match the phone number on this sign-in session. Use the same number you verified in the app, then try again.'
+            );
+        }
+    }
+
     private async getByIdOrThrowError(params: { userId: string }): Promise<IUser> {
         const { userId } = params;
         const { data, error } = await this.db.from('users').select('*').eq('id', userId).maybeSingle();

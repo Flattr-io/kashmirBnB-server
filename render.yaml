@@ -27,7 +27,7 @@ services:
       - key: MAPBOX_API_KEY
         sync: false  # Set this in Render Dashboard
       - key: CORS_ORIGINS
-        value: "*"  # Update this with your frontend domain in production
+        value: "https://kshmrbnb.vercel.app,http://localhost:3000,http://localhost:3001"
       # Optional Environment Variables
       - key: RENDER_EXTERNAL_URL
         fromService:

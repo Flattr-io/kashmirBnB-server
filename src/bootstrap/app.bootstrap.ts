@@ -15,7 +15,9 @@ import { SocketBootstrap } from './socket.bootstrap';
 
 dotenv.config();
 
-const origin = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : '*';
+const origin = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+    : '*';
 
 export class AppBootstrap {
     private app: Express;
