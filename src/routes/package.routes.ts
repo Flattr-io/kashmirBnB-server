@@ -4,6 +4,7 @@ import { startOfDayUtc } from '../utils/date.util';
 import { optionalAuthMiddleware } from '../middlewares/optional-auth.middleware';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { getDB } from '../configuration/database.config';
+import { pathParam } from '../utils/path-param.util';
 
 const router = Router();
 const service = new PackageService();
@@ -180,7 +181,7 @@ router.post('/generate', [optionalAuthMiddleware], async (req: Request, res: Res
  *         description: Server error
  */
 router.post('/:packageId/book', [optionalAuthMiddleware], async (req: Request, res: Response) => {
-    const { packageId } = req.params;
+    const packageId = pathParam(req.params.packageId);
     const { cabId, dayConfigurations } = req.body || {};
     const db = getDB();
 
@@ -299,7 +300,7 @@ router.post('/:packageId/book', [optionalAuthMiddleware], async (req: Request, r
  *         description: Server error
  */
 router.get('/:packageId', authMiddleware, async (req: Request, res: Response) => {
-    const { packageId } = req.params;
+    const packageId = pathParam(req.params.packageId);
     const user = (req as any).user;
     const db = getDB();
 
@@ -374,7 +375,7 @@ router.get('/:packageId', authMiddleware, async (req: Request, res: Response) =>
  *         description: Server error
  */
 router.post('/:packageId/clone', authMiddleware, async (req: Request, res: Response) => {
-    const { packageId } = req.params;
+    const packageId = pathParam(req.params.packageId);
     const { startDate } = req.body;
     const user = (req as any).user;
     const db = getDB();
@@ -448,7 +449,7 @@ router.post('/:packageId/clone', authMiddleware, async (req: Request, res: Respo
  *         description: Internal Server Error
  */
 router.patch('/:packageId', [optionalAuthMiddleware], async (req: Request, res: Response) => {
-    const { packageId } = req.params;
+    const packageId = pathParam(req.params.packageId);
     const body = req.body;
     try {
         const result = await service.updateConfiguration(packageId, body);

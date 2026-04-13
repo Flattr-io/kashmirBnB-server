@@ -15,9 +15,32 @@ import { SocketBootstrap } from './socket.bootstrap';
 
 dotenv.config();
 
-const origin = process.env.CORS_ORIGINS
-    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
-    : '*';
+/** Vite dev server defaults — merged into CORS when not production so local apps/web works. */
+const VITE_DEV_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'] as const;
+
+function resolveCorsOrigin(): string | string[] {
+    const explicit = process.env.CORS_ORIGINS
+        ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+        : [];
+
+    if (explicit.length === 0) {
+        return '*';
+    }
+
+    if (process.env.NODE_ENV === 'production') {
+        return explicit;
+    }
+
+    const merged = [...explicit];
+    for (const o of VITE_DEV_ORIGINS) {
+        if (!merged.includes(o)) {
+            merged.push(o);
+        }
+    }
+    return merged;
+}
+
+const origin = resolveCorsOrigin();
 
 export class AppBootstrap {
     private app: Express;

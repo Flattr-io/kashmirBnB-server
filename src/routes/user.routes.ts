@@ -3,6 +3,7 @@ import createError from 'http-errors';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { UserService } from '../services/user.service';
 import { requireRoles, requireSelfOrRoles } from '../middlewares/authorization.middleware';
+import { pathParam } from '../utils/path-param.util';
 
 const router = Router();
 const userService = new UserService();
@@ -200,7 +201,7 @@ router.post('/', [authMiddleware], async (req: Request, res: Response, next: Nex
  */
 router.get('/:userId/preview', [authMiddleware], async (req: Request, res: Response) => {
     try {
-        const profile = await userService.getPublicProfile(req.params.userId);
+        const profile = await userService.getPublicProfile(pathParam(req.params.userId));
         res.send(profile);
     } catch (error: any) {
         if (error.statusCode === 404 || error.message?.includes('not found')) {
@@ -236,7 +237,7 @@ router.get('/:userId/preview', [authMiddleware], async (req: Request, res: Respo
  *         description: User not found
  */
 router.get('/:userId', [authMiddleware, requireSelfOrRoles('userId', 'admin')], async (req: Request, res: Response) => {
-    const user = await userService.getById({ userId: req.params.userId });
+    const user = await userService.getById({ userId: pathParam(req.params.userId) });
     res.send(user);
 });
 
@@ -282,7 +283,7 @@ router.get('/:userId', [authMiddleware, requireSelfOrRoles('userId', 'admin')], 
  *         description: User not found
  */
 router.patch('/:userId', [authMiddleware, requireSelfOrRoles('userId', 'admin')], async (req: Request, res: Response) => {
-    const user = await userService.update({ userId: req.params.userId, ...req.body });
+    const user = await userService.update({ userId: pathParam(req.params.userId), ...req.body });
     res.send(user);
 });
 
@@ -312,7 +313,7 @@ router.patch('/:userId', [authMiddleware, requireSelfOrRoles('userId', 'admin')]
  *         description: User not found
  */
 router.delete('/:userId', [authMiddleware, requireSelfOrRoles('userId', 'admin')], async (req: Request, res: Response) => {
-    const result = await userService.delete({ userId: req.params.userId });
+    const result = await userService.delete({ userId: pathParam(req.params.userId) });
     res.send(result);
 });
 
@@ -380,7 +381,7 @@ router.delete('/:userId', [authMiddleware, requireSelfOrRoles('userId', 'admin')
  *         description: Profile not found
  */
 router.patch('/:userId/profile', [authMiddleware, requireSelfOrRoles('userId', 'admin')], async (req: Request, res: Response) => {
-    const profile = await userService.updateProfile({ userId: req.params.userId, ...req.body });
+    const profile = await userService.updateProfile({ userId: pathParam(req.params.userId), ...req.body });
     res.send(profile);
 });
 

@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import createError from 'http-errors';
 import { User } from '@supabase/supabase-js';
+import { pathParam } from '../utils/path-param.util';
 
 function extractUserFromRequest(req: Request): User | null {
     const user = (req as any).user as User | undefined;
@@ -82,7 +83,7 @@ export function requireSelfOrRoles(paramKey: string, ...allowedRoles: string[]) 
             return next(createError(401, 'Unauthorized'));
         }
 
-        const requestedId = String((req.params as any)[paramKey] ?? '');
+        const requestedId = pathParam(req.params[paramKey]);
         if (requestedId && requestedId === user.id) {
             return next();
         }

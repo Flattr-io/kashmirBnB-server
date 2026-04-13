@@ -1,6 +1,7 @@
 import { Request, Response, Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { POICategoryService } from '../services/poi-category.service';
+import { pathParam } from '../utils/path-param.util';
 
 const router = Router();
 const poiCategoryService = new POICategoryService();
@@ -104,8 +105,8 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  */
 router.get('/:categoryId', async (req: Request, res: Response) => {
     try {
-        const { categoryId } = req.params;
-        const category = await poiCategoryService.getById({ categoryId: categoryId });
+        const categoryId = pathParam(req.params.categoryId);
+        const category = await poiCategoryService.getById({ categoryId });
         res.json(category);
     } catch (error: any) {
         if (error.message?.includes('not found')) {
@@ -161,9 +162,9 @@ router.get('/:categoryId', async (req: Request, res: Response) => {
  *         description: POI category not found
  */
 router.patch('/:categoryId', [authMiddleware], async (req: Request, res: Response) => {
-    const { categoryId } = req.params;
+    const categoryId = pathParam(req.params.categoryId);
     const { payload } = req.body;
-    const category = await poiCategoryService.update({ categoryId: categoryId, ...payload });
+    const category = await poiCategoryService.update({ categoryId, ...payload });
     res.send(category);
 });
 
@@ -193,8 +194,8 @@ router.patch('/:categoryId', [authMiddleware], async (req: Request, res: Respons
  *         description: POI category not found
  */
 router.delete('/:categoryId', [authMiddleware], async (req: Request, res: Response) => {
-    const { categoryId } = req.params;
-    const result = await poiCategoryService.delete({ categoryId: categoryId });
+    const categoryId = pathParam(req.params.categoryId);
+    const result = await poiCategoryService.delete({ categoryId });
     res.send(result);
 });
 

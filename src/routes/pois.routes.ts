@@ -1,6 +1,7 @@
 import { Request, Response, Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { PoiService } from '../services/pois.service';
+import { pathParam } from '../utils/path-param.util';
 
 const router = Router();
 const poiService = new PoiService();
@@ -116,7 +117,7 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  */
 router.get('/:poiId', async (req: Request, res: Response) => {
     try {
-        const { poiId } = req.params;
+        const poiId = pathParam(req.params.poiId);
         const poi = await poiService.getById({ poiId });
         res.json(poi);
     } catch (error: any) {
@@ -190,7 +191,7 @@ router.get('/:poiId', async (req: Request, res: Response) => {
  *               $ref: '#/components/schemas/Error'
  */
 router.patch('/:poiId', [authMiddleware], async (req: Request, res: Response) => {
-    const { poiId } = req.params;
+    const poiId = pathParam(req.params.poiId);
     const poi = await poiService.update({ poiId, ...req.body });
     res.send(poi);
 });
@@ -221,7 +222,7 @@ router.patch('/:poiId', [authMiddleware], async (req: Request, res: Response) =>
  *         description: POI not found
  */
 router.delete('/:poiId', [authMiddleware], async (req: Request, res: Response) => {
-    const { poiId } = req.params;
+    const poiId = pathParam(req.params.poiId);
     const result = await poiService.delete({ poiId });
     res.send(result);
 });

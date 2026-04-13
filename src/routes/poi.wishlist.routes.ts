@@ -1,6 +1,7 @@
 import { Request, Response, Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { POIWishlistService } from '../services/poi-wishlist.service';
+import { pathParam } from '../utils/path-param.util';
 
 const router = Router();
 const poiWishlistService = new POIWishlistService();
@@ -22,7 +23,7 @@ const poiWishlistService = new POIWishlistService();
  *         description: Unauthorized
  */
 router.get('/:userId', [authMiddleware], async (req: Request, res: Response) => {
-    const { userId } = req.params;
+    const userId = pathParam(req.params.userId);
     const wishlist = await poiWishlistService.getAllByUser({ userId });
     res.send(wishlist);
 });
@@ -51,7 +52,8 @@ router.get('/:userId', [authMiddleware], async (req: Request, res: Response) => 
  *         description: Unauthorized
  */
 router.post('/:userId/:poiId', [authMiddleware], async (req: Request, res: Response) => {
-    const { userId, poiId } = req.params;
+    const userId = pathParam(req.params.userId);
+    const poiId = pathParam(req.params.poiId);
     const result = await poiWishlistService.add({ userId, poiId });
     res.send(result);
 });
@@ -82,7 +84,8 @@ router.post('/:userId/:poiId', [authMiddleware], async (req: Request, res: Respo
  *         description: POI not found in wishlist
  */
 router.delete('/:userId/:poiId', [authMiddleware], async (req: Request, res: Response) => {
-    const { userId, poiId } = req.params;
+    const userId = pathParam(req.params.userId);
+    const poiId = pathParam(req.params.poiId);
     const result = await poiWishlistService.remove({ userId, poiId });
     res.send(result);
 });

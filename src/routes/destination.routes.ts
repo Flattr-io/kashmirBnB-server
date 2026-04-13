@@ -2,6 +2,7 @@ import { Request, Response, Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { DestinationService } from '../services/destination.service';
 import { getDB } from '../configuration/database.config';
+import { pathParam } from '../utils/path-param.util';
 
 const router = Router();
 const destinationService = new DestinationService();
@@ -122,8 +123,8 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  */
 router.get('/:destinationId', async (req: Request, res: Response) => {
     try {
-        const { destinationId } = req.params;
-        const destination = await destinationService.getById({ destinationId: destinationId });
+        const destinationId = pathParam(req.params.destinationId);
+        const destination = await destinationService.getById({ destinationId });
         res.json(destination);
     } catch (error: any) {
         if (error.message?.includes('not found')) {
@@ -163,7 +164,7 @@ router.get('/:destinationId', async (req: Request, res: Response) => {
  *         description: Destination not found
  */
 router.patch('/:destinationId', [authMiddleware], async (req: Request, res: Response) => {
-    const { destinationId } = req.params;
+    const destinationId = pathParam(req.params.destinationId);
     const { payload } = req.body;
     const destination = await destinationService.update({ destinationId, payload });
     res.send(destination);
@@ -192,7 +193,7 @@ router.patch('/:destinationId', [authMiddleware], async (req: Request, res: Resp
  *         description: Destination not found
  */
 router.delete('/:destinationId', [authMiddleware], async (req: Request, res: Response) => {
-    const { destinationId } = req.params;
+    const destinationId = pathParam(req.params.destinationId);
     const result = await destinationService.delete({ destinationId });
     res.send(result);
 });
@@ -270,7 +271,7 @@ router.get('/pricing/buckets', async (req: Request, res: Response) => {
  */
 router.get('/:destinationId/pricing/buckets', async (req: Request, res: Response) => {
     const db = getDB();
-    const { destinationId } = req.params;
+    const destinationId = pathParam(req.params.destinationId);
     const { data, error } = await db
         .from('destination_pricing_buckets')
         .select('bucket_type,accommodation_price,transport_price')

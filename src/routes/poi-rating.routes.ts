@@ -1,6 +1,7 @@
 import { Request, Response, Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { POIRatingService } from '../services/poi-ratings.service';
+import { pathParam } from '../utils/path-param.util';
 
 const router = Router();
 const poiRatingService = new POIRatingService();
@@ -65,8 +66,8 @@ router.get('/', async (req: Request, res: Response) => {
  */
 router.get('/poi/:poiId', async (req: Request, res: Response) => {
     try {
-        const { poiId } = req.params;
-        const ratings = await poiRatingService.getAllByPOI({ poiId: poiId });
+        const poiId = pathParam(req.params.poiId);
+        const ratings = await poiRatingService.getAllByPOI({ poiId });
         res.json(ratings);
     } catch (error: any) {
         if (error.message?.includes('not found')) {
@@ -106,8 +107,8 @@ router.get('/poi/:poiId', async (req: Request, res: Response) => {
  */
 router.get('/:ratingId', async (req: Request, res: Response) => {
     try {
-        const { ratingId } = req.params;
-        const rating = await poiRatingService.getById({ ratingId: ratingId });
+        const ratingId = pathParam(req.params.ratingId);
+        const rating = await poiRatingService.getById({ ratingId });
         res.json(rating);
     } catch (error: any) {
         if (error.message?.includes('not found')) {
@@ -210,9 +211,9 @@ router.post('/', [authMiddleware], async (req: Request, res: Response) => {
  *         description: Rating not found
  */
 router.patch('/:ratingId', [authMiddleware], async (req: Request, res: Response) => {
-    const { ratingId } = req.params;
+    const ratingId = pathParam(req.params.ratingId);
     const { payload } = req.body;
-    const rating = await poiRatingService.update({ ratingId: ratingId, ...payload });
+    const rating = await poiRatingService.update({ ratingId, ...payload });
     res.send(rating);
 });
 
@@ -242,8 +243,8 @@ router.patch('/:ratingId', [authMiddleware], async (req: Request, res: Response)
  *         description: Rating not found
  */
 router.delete('/:ratingId', [authMiddleware], async (req: Request, res: Response) => {
-    const { ratingId } = req.params;
-    const result = await poiRatingService.delete({ ratingId: ratingId });
+    const ratingId = pathParam(req.params.ratingId);
+    const result = await poiRatingService.delete({ ratingId });
     res.send(result);
 });
 
