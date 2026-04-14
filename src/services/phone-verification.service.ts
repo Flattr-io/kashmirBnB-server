@@ -11,9 +11,9 @@ import { USER_FULL_NAME_MAX_LEN, USER_PHONE_MAX_LEN } from '../constants/user-pr
  *
  * **Backend (this API):**
  * - **JWT path:** Verify HS256 tokens with `PHONE_VERIFICATION_API_KEY` (API key from the same dashboard).
- * - **JSON URL path:** After OTP, their `phoneEmailListener` provides `user_json_url` (e.g. `https://user.phone.email/user_….json`).
- *   The backend must **GET** that URL and read `user_country_code`, `user_phone_number`, `user_first_name`, `user_last_name`
- *   (per official Node sample). Use `POST /api/auth/phone-email/sync-profile` with a Bearer session — do not expose the API key to the app.
+ * - **JSON URL path (primary):** After their OTP, `phoneEmailListener` provides `user_json_url`. The backend **GET**s that URL and
+ *   reads `user_country_code`, `user_phone_number`, `user_first_name`, `user_last_name` (see https://www.phone.email/docs-sign-in-with-phone).
+ *   Primary sign-in: `POST /api/auth/phone-email/session` (no Bearer). For already-signed-in users: `POST …/phone-email/sync-profile`.
  *
  * @see https://github.com/phoneemail/sign-in-with-phone-nodejs — `POST` body `user_json_url` + HTTP GET
  */

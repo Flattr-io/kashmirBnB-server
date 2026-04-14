@@ -33,8 +33,61 @@ router.get('/phone-email/config', (_req: Request, res: Response) => {
         clientId: process.env.PHONE_EMAIL_CLIENT_ID || null,
         docsUrl: 'https://www.phone.email/docs-sign-in-with-phone',
         message:
-            'Use clientId for the Phone.Email button in WebView. Server holds PHONE_VERIFICATION_API_KEY; call sync or verify endpoints after OTP.',
+            'Use clientId for the Phone.Email button in WebView. Server holds PHONE_VERIFICATION_API_KEY; primary sign-in: POST /api/auth/phone-email/session with user_json_url.',
     });
+});
+
+/**
+ * @swagger
+ * /auth/phone-email/session:
+ *   post:
+ *     summary: Exchange Phone.Email `user_json_url` for a Supabase session (primary sign-in)
+ *     description: |
+ *       After OTP, Phone.Email invokes `phoneEmailListener` with `user_json_url` (see their docs — backend must GET JSON for
+ *       phone + names). This is not Supabase SMS OTP. The server creates a Supabase **email** identity with a synthetic address
+ *       (`pe.{digits}@…`) and returns `{ session, user, profile }` for `supabase.auth.setSession`.
+ *     tags:
+ *       - Auth
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - user_json_url
+ *             properties:
+ *               user_json_url:
+ *                 type: string
+ *                 format: uri
+ *     responses:
+ *       200:
+ *         description: Session and profile
+ *       400:
+ *         description: Missing URL or invalid verification JSON
+ *       401:
+ *         description: Sign-in failed
+ */
+router.post('/phone-email/session', async (req: Request, res: Response) => {
+    const user_json_url = req.body?.user_json_url;
+    if (!user_json_url || typeof user_json_url !== 'string') {
+        res.status(400).json({
+            error: 'Bad Request',
+            message: 'user_json_url is required in the request body',
+            statusCode: 400,
+        });
+        return;
+    }
+    try {
+        const result = await authService.createSessionFromPhoneEmailUserJson(user_json_url);
+        res.send(result);
+    } catch (error: any) {
+        res.status(error.statusCode || 500).json({
+            error: error.name || 'Internal Server Error',
+            message: error.message || 'An unexpected error occurred',
+            statusCode: error.statusCode || 500,
+        });
+    }
 });
 
 /**
@@ -445,6 +498,7 @@ router.post('/phone-email/sync-profile', [authMiddleware], async (req: Request, 
             userId: authUser.id,
             phone: verified.phone,
             full_name,
+            email: authUser.email ?? undefined,
         });
         await chatService.ensureUserHasUsername(authUser.id);
 
@@ -469,7 +523,7 @@ router.post('/phone-email/sync-profile', [authMiddleware], async (req: Request, 
  *     description: |
  *       Accepts a JWT issued by the phone verification provider. The backend validates the signature
  *       with `PHONE_VERIFICATION_API_KEY` and, when successful, persists the phone number in the user's profile
- *       while marking `verification_status` as `verified`. If the JWT includes `user_first_name` / `user_last_name` (or aliases),
+ *       while merging `preferences.phone_verified` (document `verification_status` remains for ID/KYC). If the JWT includes `user_first_name` / `user_last_name` (or aliases),
  *       those are merged into `full_name` unless you pass `full_name` in the body.
  *     tags:
  *       - Auth
@@ -538,6 +592,7 @@ router.post('/verify-phone', [authMiddleware], async (req: Request, res: Respons
             userId: authUser.id,
             phone,
             full_name,
+            email: authUser.email ?? undefined,
         });
         await chatService.ensureUserHasUsername(authUser.id);
 
@@ -562,7 +617,7 @@ router.post('/verify-phone', [authMiddleware], async (req: Request, res: Respons
  *     description: |
  *       For users who sign in with phone via Supabase (e.g. webview OTP): after the backend-driven verification
  *       provider returns a signed `phoneToken` (JWT), call this with the Supabase session bearer token to persist
- *       the phone on `users` / `user_profiles`, set `verification_status` to `verified`, and optionally set `full_name`.
+ *       the phone on `users` / `user_profiles`, merge `preferences` phone-verification flags, and optionally set `full_name`.
  *       Same user logging in again can call repeatedly (idempotent). If the phone is already tied to another account,
  *       returns 400. When the Auth user has a phone, it must match the JWT (digits), so the same number used in-app is required.
  *       JWT may include first/last name claims (`user_first_name` / `user_last_name`); optional body `full_name` overrides.
@@ -640,6 +695,7 @@ router.post('/profile/phone', [authMiddleware], async (req: Request, res: Respon
             userId: authUser.id,
             phone,
             full_name: resolvedFullName,
+            email: authUser.email ?? undefined,
         });
         await chatService.ensureUserHasUsername(authUser.id);
 

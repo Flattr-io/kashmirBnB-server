@@ -291,8 +291,10 @@ export class UserService {
         userId: string;
         phone: string;
         full_name?: string;
+        /** Login / contact email (e.g. synthetic `pe.{digits}@…` or OAuth email) — kept in sync on `users` + `user_profiles`. */
+        email?: string | null;
     }): Promise<IUserProfile> {
-        const { userId, phone, full_name } = params;
+        const { userId, phone, full_name, email: emailParam } = params;
         const normalizedPhone = phone.trim();
         if (!normalizedPhone) {
             throw new BadRequestError('Phone number is required');
@@ -317,7 +319,7 @@ export class UserService {
 
         const { data: existingProfile } = await this.db
             .from('user_profiles')
-            .select('full_name')
+            .select('full_name, email, preferences')
             .eq('id', userId)
             .maybeSingle();
 
@@ -330,9 +332,17 @@ export class UserService {
             throw new BadRequestError(`full_name must be ${USER_FULL_NAME_MAX_LEN} characters or less`);
         }
 
-        const { error: usersErr } = await this.db
-            .from('users')
-            .upsert({ id: userId, phone: normalizedPhone }, { onConflict: 'id' });
+        const mergedPreferences = mergePhoneVerifiedPreferences(existingProfile?.preferences);
+
+        const usersPayload: { id: string; phone: string; email?: string | null } = {
+            id: userId,
+            phone: normalizedPhone,
+        };
+        if (emailParam !== undefined) {
+            usersPayload.email = emailParam;
+        }
+
+        const { error: usersErr } = await this.db.from('users').upsert(usersPayload, { onConflict: 'id' });
 
         if (usersErr) {
             if (
@@ -345,17 +355,20 @@ export class UserService {
             throw new Error(usersErr.message);
         }
 
+        const profileUpsert: Record<string, unknown> = {
+            id: userId,
+            full_name: resolvedFullName,
+            phone: normalizedPhone,
+            preferences: mergedPreferences,
+            last_active_at: new Date().toISOString(),
+        };
+        if (emailParam !== undefined) {
+            profileUpsert.email = emailParam;
+        }
+
         const { data, error } = await this.db
             .from('user_profiles')
-            .upsert(
-                {
-                    id: userId,
-                    full_name: resolvedFullName,
-                    phone: normalizedPhone,
-                    verification_status: 'verified',
-                },
-                { onConflict: 'id' }
-            )
+            .upsert(profileUpsert, { onConflict: 'id' })
             .select()
             .single();
 
@@ -418,4 +431,19 @@ export class UserService {
 
         return data as IUser;
     }
+}
+
+/**
+ * Phone proof is distinct from `verification_status` (document / ID verification in schema).
+ * Store explicit phone verification flags in `preferences` JSONB.
+ */
+function mergePhoneVerifiedPreferences(existing: unknown): Record<string, unknown> {
+    const base =
+        existing && typeof existing === 'object' && !Array.isArray(existing)
+            ? { ...(existing as Record<string, unknown>) }
+            : {};
+    base.phone_verified = true;
+    base.phone_verified_at = new Date().toISOString();
+    base.phone_verification_provider = 'phone.email';
+    return base;
 }

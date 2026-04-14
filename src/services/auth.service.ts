@@ -1,7 +1,11 @@
-import { SupabaseClient, User } from '@supabase/supabase-js';
+import { randomBytes } from 'node:crypto';
+import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { getDB } from '../configuration/database.config';
 import { BadRequestError, UnauthorizedError } from '@hyperflake/http-errors';
+import { formatProfileFullName } from '../constants/user-profile.schema';
 import { ChatService } from './chat.service';
+import { PhoneVerificationService } from './phone-verification.service';
+import { UserService } from './user.service';
 
 export class AuthService {
     private get db(): SupabaseClient {
@@ -133,6 +137,180 @@ export class AuthService {
     }
 
     /**
+     * Phone.Email primary sign-in (see https://www.phone.email/docs-sign-in-with-phone — backend reads `user_json_url`).
+     * OTP is completed in Phone.Email’s flow, not Supabase SMS. We do not use `signInWithOtp` / Twilio on Supabase.
+     *
+     * After fetching verified phone + names from their JSON, we create or sign in a Supabase user using a **synthetic email**
+     * (`pe.{digits}@…`) plus a server-only password, then issue a normal session. Real phone lives in `user_profiles.phone`.
+     */
+    async createSessionFromPhoneEmailUserJson(userJsonUrl: string) {
+        const phoneVerificationService = new PhoneVerificationService();
+        const userService = new UserService();
+
+        const verified = await phoneVerificationService.fetchVerifiedUserFromPhoneEmailJson(userJsonUrl);
+        const full_name = formatProfileFullName({
+            firstName: verified.first_name,
+            lastName: verified.last_name,
+        });
+        const phoneDisplay = verified.phone.trim();
+        const syntheticEmail = buildPhoneEmailSyntheticLoginEmail(phoneDisplay);
+        const tempPassword = randomBytes(32).toString('base64url');
+
+        const { data: created, error: createError } = await this.db.auth.admin.createUser({
+            email: syntheticEmail,
+            password: tempPassword,
+            email_confirm: true,
+            user_metadata: {
+                full_name,
+                phone: phoneDisplay,
+                phone_verified_by: 'phone.email',
+            },
+        });
+
+        let userId: string | null = created?.user?.id ?? null;
+
+        if (createError) {
+            if (!isLikelyDuplicateAuthUserError(createError)) {
+                console.error('[PhoneEmailSession] createUser:', createError);
+                throw new BadRequestError(createError.message || 'Could not create sign-in for this phone number');
+            }
+            userId = await this.resolveExistingUserIdForPhoneEmailSession(phoneDisplay, syntheticEmail);
+            if (!userId) {
+                throw new BadRequestError(
+                    'This phone number is already registered but could not be linked. Please contact support.'
+                );
+            }
+            const { error: updErr } = await this.db.auth.admin.updateUserById(userId, {
+                password: tempPassword,
+            });
+            if (updErr) {
+                console.error('[PhoneEmailSession] updateUserById:', updErr);
+                throw new BadRequestError(updErr.message || 'Could not refresh sign-in for this phone number');
+            }
+        }
+
+        if (!userId) {
+            throw new BadRequestError('Sign-in could not be established for this phone number');
+        }
+
+        /**
+         * Do not call `signInWithPassword` on the shared `getDB()` client: it attaches the user's JWT to that
+         * client, so subsequent `from('users')` / PostgREST calls run as `authenticated` and RLS applies
+         * (your `users` table has no INSERT policy). Use a short-lived client so the singleton keeps using the
+         * service role only — see https://supabase.com/docs/guides/database/postgres/row-level-security
+         */
+        const { data: signInData, error: signInError } = await this.signInWithPasswordOnEphemeralClient(
+            syntheticEmail,
+            tempPassword
+        );
+
+        if (signInError || !signInData.session || !signInData.user) {
+            console.error('[PhoneEmailSession] signInWithPassword:', signInError);
+            throw new UnauthorizedError(signInError?.message || 'Sign-in failed after Phone.Email verification');
+        }
+
+        await this.rotateUserPasswordOpaque(userId);
+
+        await this.syncUserProfile(signInData.user);
+
+        const profile = await userService.upsertProfileFromVerifiedPhone({
+            userId,
+            phone: phoneDisplay,
+            full_name,
+            email: syntheticEmail,
+        });
+        const chatService = new ChatService();
+        await chatService.ensureUserHasUsername(userId);
+
+        return {
+            session: signInData.session,
+            user: signInData.user,
+            profile,
+        };
+    }
+
+    /**
+     * Isolated client so the process-wide service client never stores an end-user session (RLS would apply).
+     */
+    private signInWithPasswordOnEphemeralClient(email: string, password: string) {
+        const url = process.env.SUPABASE_URL;
+        const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        if (!url || !key) {
+            throw new BadRequestError('SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not configured');
+        }
+        const isolated = createClient(url, key, {
+            auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+            },
+        });
+        return isolated.auth.signInWithPassword({ email, password });
+    }
+
+    private async rotateUserPasswordOpaque(userId: string): Promise<void> {
+        const next = randomBytes(48).toString('base64url');
+        const { error } = await this.db.auth.admin.updateUserById(userId, { password: next });
+        if (error) {
+            console.warn('[PhoneEmailSession] password rotation skipped:', error.message);
+        }
+    }
+
+    /**
+     * Existing account: synthetic email on `public.users`, profile phone, or legacy Supabase `auth.users.phone` rows.
+     */
+    private async resolveExistingUserIdForPhoneEmailSession(
+        rawPhone: string,
+        syntheticEmail: string
+    ): Promise<string | null> {
+        const bySynth = await this.findUserIdBySyntheticEmail(syntheticEmail);
+        if (bySynth) return bySynth;
+
+        const trimmed = rawPhone.trim();
+        const { data: byProfile } = await this.db
+            .from('user_profiles')
+            .select('id')
+            .eq('phone', trimmed)
+            .maybeSingle();
+        if (byProfile?.id) {
+            return byProfile.id as string;
+        }
+
+        const { data: byUsersTable } = await this.db.from('users').select('id').eq('phone', trimmed).maybeSingle();
+        if (byUsersTable?.id) {
+            return byUsersTable.id as string;
+        }
+
+        const targetDigits = digitsOnly(trimmed);
+        return await this.findAuthUserIdByPhoneDigits(targetDigits);
+    }
+
+    private async findUserIdBySyntheticEmail(syntheticEmail: string): Promise<string | null> {
+        const { data } = await this.db.from('users').select('id').eq('email', syntheticEmail).maybeSingle();
+        return data?.id ? (data.id as string) : null;
+    }
+
+    private async findAuthUserIdByPhoneDigits(targetDigits: string): Promise<string | null> {
+        if (targetDigits.length < 8) return null;
+        const perPage = 1000;
+        for (let page = 1; page <= 20; page++) {
+            const { data, error } = await this.db.auth.admin.listUsers({ page, perPage });
+            if (error) {
+                console.error('[PhoneEmailSession] listUsers:', error);
+                return null;
+            }
+            const users = data?.users ?? [];
+            for (const u of users) {
+                const p = u.phone;
+                if (p && digitsOnly(p) === targetDigits) {
+                    return u.id;
+                }
+            }
+            if (users.length < perPage) break;
+        }
+        return null;
+    }
+
+    /**
      * @desc Verify Supabase token for protected endpoints
      */
     async verifyToken(token: string) {
@@ -193,4 +371,32 @@ export class AuthService {
         const chatService = new ChatService();
         await chatService.ensureUserHasUsername(userId);
     }
+}
+
+/**
+ * Deterministic login identifier — not a mailbox. RFC 2606-style TLD by default.
+ * Phone.Email verification is the source of truth for the real number (`user_profiles.phone`).
+ */
+function buildPhoneEmailSyntheticLoginEmail(verifiedPhoneCombined: string): string {
+    const domain =
+        process.env.PHONE_EMAIL_SYNTHETIC_EMAIL_DOMAIN?.trim() || 'phone-email.verified.invalid';
+    const digits = digitsOnly(verifiedPhoneCombined);
+    if (!digits || digits.length < 8) {
+        throw new BadRequestError('Invalid phone number from Phone.Email verification JSON');
+    }
+    return `pe.${digits}@${domain}`;
+}
+
+function digitsOnly(s: string): string {
+    return s.replace(/\D/g, '');
+}
+
+function isLikelyDuplicateAuthUserError(err: { message?: string }): boolean {
+    const m = (err.message || '').toLowerCase();
+    return (
+        m.includes('already been registered') ||
+        m.includes('already registered') ||
+        m.includes('duplicate') ||
+        m.includes('exists')
+    );
 }
