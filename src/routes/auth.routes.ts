@@ -5,6 +5,7 @@ import { PhoneVerificationService } from '../services/phone-verification.service
 import { UserService } from '../services/user.service';
 import { ChatService } from '../services/chat.service';
 import { formatProfileFullName } from '../constants/user-profile.schema';
+import { getErrorHttpStatus } from '../utils/http-error-status.util';
 
 const router = Router();
 const authService = new AuthService();
@@ -82,10 +83,11 @@ router.post('/phone-email/session', async (req: Request, res: Response) => {
         const result = await authService.createSessionFromPhoneEmailUserJson(user_json_url);
         res.send(result);
     } catch (error: any) {
-        res.status(error.statusCode || 500).json({
+        const status = getErrorHttpStatus(error);
+        res.status(status).json({
             error: error.name || 'Internal Server Error',
             message: error.message || 'An unexpected error occurred',
-            statusCode: error.statusCode || 500,
+            statusCode: status,
         });
     }
 });
@@ -341,10 +343,11 @@ router.get('/callback', async (req: Request, res: Response) => {
             statusCode: 400,
         });
     } catch (error: any) {
-        res.status(error.statusCode || 500).json({
+        const status = getErrorHttpStatus(error);
+        res.status(status).json({
             error: error.name || 'Internal Server Error',
             message: error.message || 'An unexpected error occurred',
-            statusCode: error.statusCode || 500,
+            statusCode: status,
         });
     }
 });
@@ -417,10 +420,11 @@ router.post('/google-id-token', async (req: Request, res: Response) => {
         );
         res.send(result);
     } catch (error: any) {
-        res.status(error.statusCode || 500).json({
+        const status = getErrorHttpStatus(error);
+        res.status(status).json({
             error: error.name || 'Internal Server Error',
             message: error.message || 'An unexpected error occurred',
-            statusCode: error.statusCode || 500,
+            statusCode: status,
         });
     }
 });
@@ -507,10 +511,11 @@ router.post('/phone-email/sync-profile', [authMiddleware], async (req: Request, 
             profile,
         });
     } catch (error: any) {
-        res.status(error.statusCode || 500).json({
+        const status = getErrorHttpStatus(error);
+        res.status(status).json({
             error: error.name || 'Internal Server Error',
             message: error.message || 'An unexpected error occurred',
-            statusCode: error.statusCode || 500,
+            statusCode: status,
         });
     }
 });
@@ -601,10 +606,11 @@ router.post('/verify-phone', [authMiddleware], async (req: Request, res: Respons
             profile,
         });
     } catch (error: any) {
-        res.status(error.statusCode || 500).json({
+        const status = getErrorHttpStatus(error);
+        res.status(status).json({
             error: error.name || 'Internal Server Error',
             message: error.message || 'An unexpected error occurred',
-            statusCode: error.statusCode || 500,
+            statusCode: status,
         });
     }
 });
@@ -704,10 +710,11 @@ router.post('/profile/phone', [authMiddleware], async (req: Request, res: Respon
             profile,
         });
     } catch (error: any) {
-        res.status(error.statusCode || 500).json({
+        const status = getErrorHttpStatus(error);
+        res.status(status).json({
             error: error.name || 'Internal Server Error',
             message: error.message || 'An unexpected error occurred',
-            statusCode: error.statusCode || 500,
+            statusCode: status,
         });
     }
 });

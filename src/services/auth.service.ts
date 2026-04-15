@@ -156,13 +156,21 @@ export class AuthService {
         const syntheticEmail = buildPhoneEmailSyntheticLoginEmail(phoneDisplay);
         const tempPassword = randomBytes(32).toString('base64url');
 
+        /**
+         * `create_user_profile` trigger copies `raw_user_meta_data->>'phone'` into `public.users.phone`.
+         * Older DBs use VARCHAR(15) for that column; E.164 with `+` can exceed 15 chars and makes Auth return
+         * "Database error creating new user". Store up to 15 **digits** (E.164 max) — full display/E.164 is set in `user_profiles` by `upsertProfileFromVerifiedPhone`.
+         */
+        const phoneForAuthMetadata = digitsOnly(phoneDisplay).slice(0, 15);
+
         const { data: created, error: createError } = await this.db.auth.admin.createUser({
             email: syntheticEmail,
             password: tempPassword,
             email_confirm: true,
             user_metadata: {
                 full_name,
-                phone: phoneDisplay,
+                phone: phoneForAuthMetadata,
+                phone_e164: phoneDisplay,
                 phone_verified_by: 'phone.email',
             },
         });
@@ -266,16 +274,25 @@ export class AuthService {
         if (bySynth) return bySynth;
 
         const trimmed = rawPhone.trim();
-        const { data: byProfile } = await this.db
+        const phoneKey = digitsOnly(trimmed).slice(0, 15);
+        const phoneVariants = [...new Set([trimmed, phoneKey].filter((p) => p.length > 0))];
+
+        const { data: byProfileRows } = await this.db
             .from('user_profiles')
             .select('id')
-            .eq('phone', trimmed)
-            .maybeSingle();
+            .in('phone', phoneVariants)
+            .limit(1);
+        const byProfile = byProfileRows?.[0];
         if (byProfile?.id) {
             return byProfile.id as string;
         }
 
-        const { data: byUsersTable } = await this.db.from('users').select('id').eq('phone', trimmed).maybeSingle();
+        const { data: byUsersRows } = await this.db
+            .from('users')
+            .select('id')
+            .in('phone', phoneVariants)
+            .limit(1);
+        const byUsersTable = byUsersRows?.[0];
         if (byUsersTable?.id) {
             return byUsersTable.id as string;
         }

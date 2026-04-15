@@ -305,15 +305,18 @@ export class UserService {
 
         await this.assertVerifiedPhoneMatchesAuthSessionIfApplicable(userId, normalizedPhone);
 
-        const { data: existingOther, error: dupLookupError } = await this.db
+        /** Canonical key for `public.users.phone` (legacy VARCHAR(15) safe; matches auth trigger metadata). */
+        const phoneKey = digitsOnlyPhone(normalizedPhone).slice(0, 15);
+        const phoneLookupVariants = [...new Set([normalizedPhone, phoneKey].filter((p) => p.length > 0))];
+
+        const { data: dupRows, error: dupLookupError } = await this.db
             .from('users')
             .select('id')
-            .eq('phone', normalizedPhone)
             .neq('id', userId)
-            .maybeSingle();
+            .in('phone', phoneLookupVariants);
 
         if (dupLookupError) throw new Error(dupLookupError.message);
-        if (existingOther) {
+        if (dupRows && dupRows.length > 0) {
             throw new BadRequestError('This phone number is already registered to another account');
         }
 
@@ -336,7 +339,7 @@ export class UserService {
 
         const usersPayload: { id: string; phone: string; email?: string | null } = {
             id: userId,
-            phone: normalizedPhone,
+            phone: phoneKey,
         };
         if (emailParam !== undefined) {
             usersPayload.email = emailParam;
@@ -446,4 +449,8 @@ function mergePhoneVerifiedPreferences(existing: unknown): Record<string, unknow
     base.phone_verified_at = new Date().toISOString();
     base.phone_verification_provider = 'phone.email';
     return base;
+}
+
+function digitsOnlyPhone(s: string): string {
+    return s.replace(/\D/g, '');
 }

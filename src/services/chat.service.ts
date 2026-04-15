@@ -109,11 +109,17 @@ export class ChatService {
 
         const { data: profile } = await this.db
             .from('user_profiles')
-            .select('verification_status, kyc_status, chat_variation_id')
+            .select('verification_status, kyc_status, chat_variation_id, preferences')
             .eq('id', userId)
             .single();
 
-        const isPhoneVerified = profile?.verification_status === 'verified';
+        const prefs = profile && typeof profile === 'object' && (profile as { preferences?: unknown }).preferences;
+        const phoneVerifiedFlag =
+            prefs && typeof prefs === 'object' && !Array.isArray(prefs)
+                ? (prefs as Record<string, unknown>).phone_verified === true
+                : false;
+        const isPhoneVerified =
+            profile?.verification_status === 'verified' || phoneVerifiedFlag;
         const isKycVerified = profile?.kyc_status === 'verified';
 
         return {
