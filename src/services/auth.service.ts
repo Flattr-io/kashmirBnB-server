@@ -180,12 +180,16 @@ export class AuthService {
         if (createError) {
             if (!isLikelyDuplicateAuthUserError(createError)) {
                 console.error('[PhoneEmailSession] createUser:', createError);
-                throw new BadRequestError(createError.message || 'Could not create sign-in for this phone number');
+                throw new BadRequestError(
+                    authAdminErrorMessage(createError) || 'Could not create sign-in for this phone number'
+                );
             }
             userId = await this.resolveExistingUserIdForPhoneEmailSession(phoneDisplay, syntheticEmail);
             if (!userId) {
+                console.error('[PhoneEmailSession] duplicate-like createUser error but no existing user match:', createError);
                 throw new BadRequestError(
-                    'This phone number is already registered but could not be linked. Please contact support.'
+                    authAdminErrorMessage(createError) ||
+                        'This phone number is already registered but could not be linked. Please contact support.'
                 );
             }
             const { error: updErr } = await this.db.auth.admin.updateUserById(userId, {
@@ -270,6 +274,9 @@ export class AuthService {
         rawPhone: string,
         syntheticEmail: string
     ): Promise<string | null> {
+        const byAuthEmail = await this.findAuthUserIdByEmail(syntheticEmail);
+        if (byAuthEmail) return byAuthEmail;
+
         const bySynth = await this.findUserIdBySyntheticEmail(syntheticEmail);
         if (bySynth) return bySynth;
 
@@ -309,20 +316,59 @@ export class AuthService {
     private async findAuthUserIdByPhoneDigits(targetDigits: string): Promise<string | null> {
         if (targetDigits.length < 8) return null;
         const perPage = 1000;
-        for (let page = 1; page <= 20; page++) {
+        let page = 1;
+        let lastPage = 1;
+        const maxPages = 100;
+
+        while (page <= lastPage && page <= maxPages) {
             const { data, error } = await this.db.auth.admin.listUsers({ page, perPage });
             if (error) {
                 console.error('[PhoneEmailSession] listUsers:', error);
                 return null;
             }
             const users = data?.users ?? [];
+            const lp = (data as { lastPage?: number })?.lastPage;
+            if (typeof lp === 'number' && lp > 0) {
+                lastPage = lp;
+            }
             for (const u of users) {
-                const p = u.phone;
-                if (p && digitsOnly(p) === targetDigits) {
+                if (authUserPhoneDigitsMatch(u, targetDigits)) {
                     return u.id;
                 }
             }
             if (users.length < perPage) break;
+            page += 1;
+        }
+        return null;
+    }
+
+    private async findAuthUserIdByEmail(targetEmail: string): Promise<string | null> {
+        const normalized = targetEmail.trim().toLowerCase();
+        if (!normalized) return null;
+
+        const perPage = 1000;
+        let page = 1;
+        let lastPage = 1;
+        const maxPages = 100;
+
+        while (page <= lastPage && page <= maxPages) {
+            const { data, error } = await this.db.auth.admin.listUsers({ page, perPage });
+            if (error) {
+                console.error('[PhoneEmailSession] listUsers(email):', error);
+                return null;
+            }
+            const users = data?.users ?? [];
+            const lp = (data as { lastPage?: number })?.lastPage;
+            if (typeof lp === 'number' && lp > 0) {
+                lastPage = lp;
+            }
+            for (const u of users) {
+                if ((u.email || '').trim().toLowerCase() === normalized) {
+                    return u.id;
+                }
+            }
+            if (users.length < perPage) break;
+            page += 1;
         }
         return null;
     }
@@ -408,12 +454,59 @@ function digitsOnly(s: string): string {
     return s.replace(/\D/g, '');
 }
 
-function isLikelyDuplicateAuthUserError(err: { message?: string }): boolean {
-    const m = (err.message || '').toLowerCase();
-    return (
-        m.includes('already been registered') ||
-        m.includes('already registered') ||
-        m.includes('duplicate') ||
-        m.includes('exists')
-    );
+function authAdminErrorMessage(err: unknown): string {
+    if (err == null) return '';
+    if (typeof err === 'string') return err.trim();
+    const o = err as Record<string, unknown>;
+    const msg = o.message ?? o.msg ?? o.error_description;
+    if (typeof msg === 'string' && msg.trim()) return msg.trim();
+    try {
+        return JSON.stringify(err);
+    } catch {
+        return String(err);
+    }
+}
+
+function isLikelyDuplicateAuthUserError(err: unknown): boolean {
+    const code = String((err as { code?: string })?.code || '')
+        .toLowerCase()
+        .trim();
+    if (
+        code === 'identity_already_exists' ||
+        code === 'user_already_exists' ||
+        code === 'email_exists' ||
+        code === 'phone_exists'
+    ) {
+        return true;
+    }
+
+    const m = authAdminErrorMessage(err).toLowerCase();
+    if (!m) return false;
+
+    if (m.includes('already been registered')) return true;
+    if (m.includes('email address has already been registered')) return true;
+    if (m.includes('phone number has already been registered')) return true;
+    if (m.includes('user already registered')) return true;
+    if (m.includes('a user with this email address has already been registered')) return true;
+
+    return false;
+}
+
+function authUserPhoneDigitsMatch(user: User, targetDigits: string): boolean {
+    const meta = user.user_metadata;
+    const fromMeta =
+        meta && typeof meta === 'object' && !Array.isArray(meta)
+            ? [
+                  (meta as Record<string, unknown>).phone,
+                  (meta as Record<string, unknown>).phone_e164,
+                  (meta as Record<string, unknown>).phone_number,
+              ]
+            : [];
+    const candidates = [user.phone, ...fromMeta];
+    for (const c of candidates) {
+        if (typeof c === 'string' && c.length > 0 && digitsOnly(c) === targetDigits) {
+            return true;
+        }
+    }
+    return false;
 }
